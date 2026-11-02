@@ -1,0 +1,411 @@
+# AquaMind — ChatGPT Work Handoff
+Updated: 2026-09-07
+Project root: `C:\Projects\aquamind`
+
+## Purpose
+This is the authoritative continuation checkpoint for AquaMind. Continue from the current phase. Do not restart architecture/design work or revalidate locked phases unless a later integration exposes a concrete defect.
+
+## Environment
+- OS: Windows
+- Shell: PowerShell
+- Root: `C:\Projects\aquamind`
+- Backend: `C:\Projects\aquamind\backend`
+- Frontend: `C:\Projects\aquamind\frontend`
+- Python venv: `C:\Projects\aquamind\.venv`
+- Backend: FastAPI + SQLAlchemy async + PostgreSQL
+- Windows DB driver: `postgresql+asyncpg`
+- Frontend: React 18 + TypeScript + Vite + Vitest + Testing Library
+- Frontend: `http://127.0.0.1:3000`
+- Backend: `http://127.0.0.1:8000`
+- API: `http://127.0.0.1:8000/api/v1`
+- On Windows: `HARDWARE_ENABLED=false`
+
+### Runtime
+Frontend:
+```powershell
+Set-Location C:\Projects\aquamind\frontend
+npm run dev
+```
+
+Backend:
+```powershell
+Set-Location C:\Projects\aquamind\backend
+$env:HARDWARE_ENABLED="false"
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+## Working rules
+1. Continue from this checkpoint; do not start again.
+2. Locked phases stay closed unless a later integration exposes a specific defect.
+3. Use the smallest necessary inspection/check before changing code.
+4. Avoid broad/repetitive debugging.
+5. Workflow: targeted test/check → exact diagnosis → smallest correct change → rerun targeted test → logical checkpoint → full suite only at a lock/cross-stack checkpoint.
+6. Do not invent API fields, enum values, components, GPIO pins, relay polarity, ADC channels, timings, thresholds, or wiring.
+7. Current hardware/components are not finalized; unknown values remain unresolved.
+8. Laptop-first development must work with simulated/test persisted data.
+9. Physical Raspberry Pi behavior stays behind the HAL/runtime boundary.
+10. Never infer physical execution from a DB default/configuration alone.
+11. Prefer complete-file replacements when partial edits are error-prone.
+12. Preserve known-good code and tests.
+13. Use Windows PowerShell.
+14. Do not run Pi/Linux `.sh` scripts on Windows.
+15. Do not rerun the full backend suite for frontend-only changes.
+16. Ignore the Vitest repeated-jsdom performance note unless there is an actual test problem.
+
+## Roadmap status
+
+### COMPLETE + LOCKED
+- Phase 1 — Project Foundation
+- Phase 2 — Domain & Architecture
+- Phase 3 — Database Design
+- Phase 4 — Backend Foundation
+- Phase 5 — API / Application Layer
+- Phase 6 — Business Logic / Services
+- Phase 7 — Authentication & Authorization
+- Phase 8 — Automation & Control
+- Phase 9 — Raspberry Pi / Hardware software/deployment prep through 9F.5
+- Phase 10A — Frontend Foundation
+- Phase 10B — Authentication & Authorization UI
+- Phase 10C.1 — Application Shell + Navigation
+- Phase 10C.2 — Real Backend Connection Status
+- Phase 10C.3A — Real Dashboard Resource Overview
+- Phase 10C.3B — Efficient Latest Sensor Telemetry
+- Phase 10C.3C — Telemetry Timeliness & Freshness Foundation
+- Phase 10D.1 — Read-only Sensors Overview
+- Phase 10D.2A — Bounded Sensor History API Foundation
+- Phase 10D.2B — Sensor Detail & Bounded History View
+- Phase 10D.2C — Sensor Trend Visualization
+- Phase 10E.1 — Read-only Actuators Overview
+- Phase 10E.2A — Bounded Actuator Event History API Foundation
+- Phase 10E.2B — Actuator Detail & Bounded Event History View
+- Phase 10F.1 — Bounded Alert History API Foundation
+
+### CURRENT / NEXT
+### Phase 10F — Alerts
+- 10F.1 — Bounded Alert History API Foundation — COMPLETE + LOCKED
+- **10F.2 — Read-only Alerts Center — CURRENT**
+
+Phase 10E.2A and Phase 10E.2B remain COMPLETE + LOCKED.
+
+#### Locked 10F.1 contract
+- Generic `GET /api/v1/alerts` and its existing behavior remain preserved.
+- `GET /api/v1/alerts/history` is the bounded system-scoped history endpoint, registered before `/{alert_id}`.
+- Alert history is persisted application data, not hardware evidence.
+- Required `system_id` (UUID).
+- `limit`: default 50, minimum 1, maximum 100.
+- `offset`: default 0, minimum 0.
+- Validate that the system exists and is not soft-deleted.
+- Deterministic ordering: `created_at DESC, id DESC`.
+- Return the existing `AlertResponse` list; preserve response contracts and authorization behavior.
+- No alert business-logic, acknowledgment, resolution, frontend, or hardware changes.
+- `HARDWARE_ENABLED=false` remains the Windows boundary.
+
+Do not invent a new history model. AquaMind already has `ActuatorEvent`.
+
+## Current baselines
+
+### Backend
+Latest full regression:
+```text
+547 passed
+```
+
+### Frontend
+Latest verified (browser verification and production build completion confirmed by the user at this checkpoint):
+```text
+TypeScript clean
+ESLint clean
+Test files 19/19
+Tests 78/78
+Production build passed
+Browser verification passed
+```
+
+## Important completed backend fixes
+- Windows uses `postgresql+asyncpg`.
+- Alembic was converted to async-engine handling for asyncpg.
+- Migration head: `4c7a9e2f1b63`; it adds nullable `sensors.deleted_at`.
+- CORS permits exact frontend origin `http://127.0.0.1:3000`.
+- Real admin user already exists; do not recreate it without a specific reason.
+- Auth is locked: access token memory-only, refresh token in sessionStorage, refresh rotation, single-flight refresh, logout/guards working.
+
+## Hardware boundary
+Current:
+```text
+Windows laptop
+HARDWARE_ENABLED=false
+simulated/test persisted data
+```
+
+Future:
+```text
+Raspberry Pi 5 4GB
+real components after acquisition and verification
+```
+
+Do not assume GPIO, polarity, relay channels, ADC channels, probe models, timing tolerances, stale/offline thresholds, or physical connection state.
+
+## Dashboard
+Current dashboard includes:
+- backend online/offline
+- system selection
+- real sensor/actuator/alert counts
+- efficient latest reading per sensor
+- source / quality / timestamp
+- reporting count
+- timing: `On time`, `Late`, `Unknown`, `No reading yet`
+
+Timing rule:
+```text
+No reading -> No reading yet
+Invalid/future timestamp -> Unknown
+age <= sampling_interval_seconds -> On time
+age > sampling_interval_seconds -> Late
+```
+Do not call Late “hardware failure”, “offline”, or “stale” yet.
+
+## Sensors — locked
+Routes:
+```text
+/sensors
+/sensors/:sensorId
+```
+
+Latest API:
+```text
+GET /api/v1/sensor-readings/latest?system_id=<uuid>
+```
+
+Bounded history:
+```text
+GET /api/v1/sensor-readings/history?sensor_id=<uuid>&limit=<1..100>&offset=<>=0>
+```
+
+Frontend requests 51 rows, displays 50, and uses row 51 only for `hasNext`.
+
+Sensor detail includes bounded history and a recent trend chart. The chart uses only current-page data and must not hardcode aquaponics warning/critical ranges.
+
+## Actuators — current state
+
+### 10E.1 COMPLETE + LOCKED
+Route:
+```text
+/actuators
+```
+
+Shows:
+- selected system
+- configured/enabled/state-recorded counts
+- actuator type
+- control mode
+- location
+- hardware identifier
+- safety configuration
+- persisted state only when `last_state_at` is non-null
+
+Semantic rule:
+```text
+current_state = OFF
+last_state_at = null
+```
+renders:
+```text
+No state recorded
+```
+and is not evidence of physical execution.
+
+Current real actuator shown locally:
+- `Event Test Water Pump`
+- type `water pump`
+- control mode `manual`
+- enabled yes
+- state recorded 0
+- hardware identifier `PUMP-EVENT-001`
+- safety configuration configured
+- no timestamped state yet
+
+### 10E.2A COMPLETE + LOCKED
+Bounded event history endpoint:
+```text
+GET /api/v1/actuator-events/history?actuator_id=<uuid>&limit=<1..100>&offset=<>=0>
+```
+- Required actuator ID; nonexistent or soft-deleted actuators return 404.
+- Default limit 50, maximum 100; default offset 0, minimum 0.
+- Ordering: `started_at DESC, created_at DESC, id DESC`.
+- `/history` precedes `/{event_id}`; the generic list endpoint and existing response contracts are preserved.
+
+### 10E.2B COMPLETE + LOCKED
+Protected actuator detail route:
+```text
+/actuators/:actuatorId
+```
+- Loads detail through the existing actuator API and history through the bounded endpoint.
+- Frontend requests 51 rows, displays 50, and uses row 51 only for `hasNext`; preserves backend ordering.
+- Overview → detail and detail → overview navigation are available.
+- Preserves “No state recorded” when `last_state_at` is null.
+- Nullable values render as “Not recorded”; numeric zero is preserved and value units are not inferred.
+- Persisted software event history must not be described as proof of physical execution.
+- No actuator control UI. `HARDWARE_ENABLED=false` remains the Windows boundary.
+
+## Existing actuator APIs already inspected
+
+`app/api/actuators.py`:
+```text
+GET /api/v1/actuators?system_id=<uuid>
+GET /api/v1/actuators/{actuator_id}
+POST /api/v1/actuators
+PATCH /api/v1/actuators/{actuator_id}
+DELETE /api/v1/actuators/{actuator_id}
+```
+
+`app/api/actuator_events.py` already exists with prefix:
+```text
+/actuator-events
+```
+
+Search already confirmed:
+- create
+- list
+- get
+- update
+- list can filter by `actuator_id`
+- list orders by `ActuatorEvent.created_at.desc()`
+
+Therefore:
+- Do not invent another actuator-history table/model.
+- Do not substitute audit logs for actuator execution history.
+
+## EXACT NEXT ACTION
+Continue with **10F.2 — Read-only Alerts Center** under **Phase 10F — Alerts**. Phase 10F.1 is COMPLETE + LOCKED. Use the bounded system-scoped `GET /api/v1/alerts/history` endpoint for alert history. Preserve the generic alert list, existing response contracts, authorization behavior, and locked alert business logic. Alert history is persisted application data, not hardware evidence.
+
+Phase 10E.2A and Phase 10E.2B are COMPLETE + LOCKED. Preserve the backend baseline of 547 passed and the frontend baseline of TypeScript clean, ESLint clean, 19/19 test files, 78/78 tests, browser verification passed, and production build passed.
+
+Do not add physical actuator-control UI merely because a frontend page exists.
+
+## Locked boundaries
+- Phase 6: do not reopen alert/feeding/refill/automation business logic without a concrete integration defect.
+- Phase 8: runtime orchestration/execution/arbitration is locked.
+- Phase 9: HAL/deployment prep stays locked until physical commissioning.
+- Phase 10: reuse existing services/hooks/contracts rather than duplicate requests.
+
+## Real local DB facts
+- active admin user exists
+- system: `AquaMind Test System`
+- timezone: `Asia/Manila`
+- one test pH sensor with persisted simulator readings
+- one configured test water-pump actuator
+- simulator telemetry must never be described as physical hardware telemetry
+
+## Frontend technical baseline
+- React 18.3.1
+- React DOM 18.3.1
+- react-router-dom 7.18.3
+- TypeScript 6.0.2
+- Vite 8.2.2
+- Vitest 5.0.0
+
+Routing:
+- `src/app/App.tsx` uses `BrowserRouter`
+- routes live in `src/app/router.tsx`
+- protected routes live under `ProtectedRoute` + `AppLayout`
+
+Current protected routes:
+```text
+/
+/sensors
+/sensors/:sensorId
+/actuators
+/actuators/:actuatorId
+/feeding
+/automation
+/alerts
+/settings
+```
+
+## Instruction to ChatGPT Work
+Treat this file as the authoritative continuation checkpoint.
+- Do not restart earlier phases.
+- Do not revalidate locked phases without a specific defect.
+- Inspect repository files directly when needed.
+- Prefer existing contracts.
+- Keep Windows `HARDWARE_ENABLED=false`.
+- Do not invent hardware.
+- Preserve current baselines.
+- Use focused tests first.
+- Give exact PowerShell commands.
+- Provide complete updated files when partial edits would be confusing.
+
+## Recommended first Work prompt
+> Continue AquaMind from `AQUAMIND_WORK_HANDOFF.md`. The current phase is 10F.2 — Read-only Alerts Center. Phase 10F.1 — Bounded Alert History API Foundation is COMPLETE + LOCKED. Reuse the bounded system-scoped `/api/v1/alerts/history` endpoint and preserve generic `GET /api/v1/alerts`. Alert history is persisted application data, not hardware evidence. Phase 10E.2A and Phase 10E.2B remain COMPLETE + LOCKED, along with all previously locked phases. Preserve the backend baseline of 547 passed and frontend baseline of 19/19 test files, 78/78 tests, TypeScript clean, ESLint clean, browser verified, and production build passed. Keep Windows `HARDWARE_ENABLED=false`. Do not reopen earlier work unless a concrete integration defect requires it.
+
+
+## CURRENT LOCK CHECKPOINT — Phase 10G.5
+
+### Phase 10G.5A — Bounded Fish Population History API Foundation
+COMPLETE + LOCKED
+
+Backend contract:
+- GET /api/v1/feeding/population/history
+- tank_id required
+- limit default 50, range 1..100
+- offset default 0, minimum 0
+- validates non-deleted Tank
+- strict tank filtering
+- effective_at DESC, id DESC ordering
+- bounded pagination
+- canonical FishPopulationRecordResponse
+- existing generic population endpoints unchanged
+
+Authorization contract:
+- population create: authenticated user
+- population update: authenticated user
+- population delete: admin
+- current AquaMind UserRole enum defines admin only
+- do not invent additional roles
+
+Backend baseline:
+- 562 passed
+- COMPLETE + LOCKED
+
+
+### Phase 10G.5B — Fish Population Management UI
+COMPLETE + LOCKED
+
+Implemented:
+- system-scoped tank loading
+- selected tank management
+- bounded population history
+- create population record
+- edit population record
+- delete population record
+- recorder provenance remains backend-owned
+- edit cannot change tank
+- bounded pagination
+- calibration, population, and feeding-history panels are sibling sections
+- persisted/database state is not represented as proof of physical fish measurement
+
+Browser verification:
+- tank selection passed
+- create passed
+- edit passed
+- delete passed
+- bounded-history verification passed
+- temporary verification fixture cleaned up
+
+Frontend final baseline:
+- 26/26 test files
+- 126/126 tests
+- TypeScript clean
+- ESLint clean
+- production build passed
+- browser CRUD verification passed
+
+Production build:
+vite v8.2.2
+68 modules transformed
+dist/index.html                   0.45 kB | gzip 0.29 kB
+dist/assets/index-DBxKZmUD.css   22.96 kB | gzip 4.34 kB
+dist/assets/index-BHn2-TbR.js   283.03 kB | gzip 78.22 kB
+
+Phase 10G.5 — Fish Population Management
+COMPLETE + LOCKED

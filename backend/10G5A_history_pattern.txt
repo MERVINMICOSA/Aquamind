@@ -1,0 +1,233 @@
+===== FEEDING API IMPORTS =====
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from decimal import Decimal
+from enum import Enum
+
+from app.api.dependencies import (
+    get_current_user,
+    get_db_session,
+    require_admin,
+)
+from app.models.actuators import Actuator, ActuatorEvent
+from app.models.feeding import (
+    FeedingEvent,
+    FeedingSchedule,
+    FeederCalibration,
+    FishPopulationRecord,
+)
+from app.models.system import (
+    AquaponicsSystem,
+    Tank,
+    User,
+)
+from app.services.audit_service import (
+    AuditAction,
+    create_audit_log,
+)
+from app.schemas.feeding import (
+    FeedingEventCreate,
+    FeedingEventResponse,
+    FeedingEventUpdate,
+    FeedingScheduleCreate,
+    FeedingScheduleResponse,
+    FeedingScheduleUpdate,
+    FeederCalibrationCreate,
+    FeederCalibrationResponse,
+    FeederCalibrationUpdate,
+    FishPopulationRecordCreate,
+    FishPopulationRecordResponse,
+    FishPopulationRecordUpdate,
+)
+
+
+router = APIRouter(
+    prefix="/feeding",
+    tags=["feeding"],
+)
+
+def _audit_value(
+    value,
+):
+    if isinstance(value, UUID):
+        return str(value)
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, Decimal):
+        return float(value)
+
+    if isinstance(value, Enum):
+        return value.value
+
+    if isinstance(value, dict):
+        return {
+            str(key): _audit_value(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            _audit_value(item)
+            for item in value
+        ]
+
+
+===== EXISTING HISTORY ROUTES =====
+  C:\Projects\aquamind\backend\app\api\feeding.py:526:            FeederCalibration.actuator_id == actuator_id
+  C:\Projects\aquamind\backend\app\api\feeding.py:527:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:528:
+  C:\Projects\aquamind\backend\app\api\feeding.py:529:    result = await session.execute(query)
+  C:\Projects\aquamind\backend\app\api\feeding.py:530:
+  C:\Projects\aquamind\backend\app\api\feeding.py:531:    return result.scalars().all()
+  C:\Projects\aquamind\backend\app\api\feeding.py:532:
+  C:\Projects\aquamind\backend\app\api\feeding.py:533:@router.get(
+> C:\Projects\aquamind\backend\app\api\feeding.py:534:    "/calibrations/history",
+  C:\Projects\aquamind\backend\app\api\feeding.py:535:    response_model=list[FeederCalibrationResponse],
+  C:\Projects\aquamind\backend\app\api\feeding.py:536:)
+  C:\Projects\aquamind\backend\app\api\feeding.py:537:async def get_feeder_calibration_history(
+  C:\Projects\aquamind\backend\app\api\feeding.py:538:    actuator_id: UUID,
+  C:\Projects\aquamind\backend\app\api\feeding.py:539:    limit: int = Query(
+  C:\Projects\aquamind\backend\app\api\feeding.py:540:        default=50,
+  C:\Projects\aquamind\backend\app\api\feeding.py:541:        ge=1,
+  C:\Projects\aquamind\backend\app\api\feeding.py:542:        le=100,
+  C:\Projects\aquamind\backend\app\api\feeding.py:543:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:544:    offset: int = Query(
+  C:\Projects\aquamind\backend\app\api\feeding.py:545:        default=0,
+  C:\Projects\aquamind\backend\app\api\feeding.py:546:        ge=0,
+  C:\Projects\aquamind\backend\app\api\feeding.py:547:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:548:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\feeding.py:549:        get_db_session
+  C:\Projects\aquamind\backend\app\api\feeding.py:550:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:551:) -> list[FeederCalibration]:
+  C:\Projects\aquamind\backend\app\api\feeding.py:552:    actuator = await session.get(
+  C:\Projects\aquamind\backend\app\api\feeding.py:553:        Actuator,
+  C:\Projects\aquamind\backend\app\api\feeding.py:554:        actuator_id,
+  C:\Projects\aquamind\backend\app\api\feeding.py:555:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:556:
+  C:\Projects\aquamind\backend\app\api\feeding.py:557:    if (
+  C:\Projects\aquamind\backend\app\api\feeding.py:558:        actuator is None
+  C:\Projects\aquamind\backend\app\api\feeding.py:559:        or actuator.deleted_at is not None
+  C:\Projects\aquamind\backend\app\api\feeding.py:560:    ):
+  C:\Projects\aquamind\backend\app\api\feeding.py:561:        raise HTTPException(
+  C:\Projects\aquamind\backend\app\api\feeding.py:562:            status_code=status.HTTP_404_NOT_FOUND,
+  C:\Projects\aquamind\backend\app\api\feeding.py:563:            detail="Actuator not found",
+  C:\Projects\aquamind\backend\app\api\feeding.py:564:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:565:
+  C:\Projects\aquamind\backend\app\api\feeding.py:566:    query = (
+  C:\Projects\aquamind\backend\app\api\feeding.py:567:        select(FeederCalibration)
+  C:\Projects\aquamind\backend\app\api\feeding.py:568:        .where(
+  C:\Projects\aquamind\backend\app\api\feeding.py:569:            FeederCalibration.actuator_id
+  C:\Projects\aquamind\backend\app\api\feeding.py:570:            == actuator_id
+  C:\Projects\aquamind\backend\app\api\feeding.py:571:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:572:        .order_by(
+  C:\Projects\aquamind\backend\app\api\feeding.py:573:            FeederCalibration.performed_at.desc(),
+  C:\Projects\aquamind\backend\app\api\feeding.py:574:            FeederCalibration.id.desc(),
+  C:\Projects\aquamind\backend\app\api\feeding.py:575:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:576:        .offset(offset)
+  C:\Projects\aquamind\backend\app\api\feeding.py:577:        .limit(limit)
+  C:\Projects\aquamind\backend\app\api\feeding.py:578:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:579:
+  C:\Projects\aquamind\backend\app\api\feeding.py:580:    result = await session.execute(
+  C:\Projects\aquamind\backend\app\api\feeding.py:581:        query
+  C:\Projects\aquamind\backend\app\api\feeding.py:582:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:583:
+  C:\Projects\aquamind\backend\app\api\feeding.py:584:    return list(
+  C:\Projects\aquamind\backend\app\api\feeding.py:585:        result.scalars().all()
+  C:\Projects\aquamind\backend\app\api\feeding.py:586:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:587:
+  C:\Projects\aquamind\backend\app\api\feeding.py:588:@router.get(
+  C:\Projects\aquamind\backend\app\api\feeding.py:589:    "/calibrations/{calibration_id}",
+  C:\Projects\aquamind\backend\app\api\feeding.py:590:    response_model=FeederCalibrationResponse,
+  C:\Projects\aquamind\backend\app\api\feeding.py:591:)
+  C:\Projects\aquamind\backend\app\api\feeding.py:592:async def get_feeder_calibration(
+  C:\Projects\aquamind\backend\app\api\feeding.py:593:    calibration_id: UUID,
+  C:\Projects\aquamind\backend\app\api\feeding.py:594:    session: AsyncSession = Depends(get_db_session),
+  C:\Projects\aquamind\backend\app\api\feeding.py:595:):
+  C:\Projects\aquamind\backend\app\api\feeding.py:596:    calibration = await session.get(
+  C:\Projects\aquamind\backend\app\api\feeding.py:597:        FeederCalibration,
+  C:\Projects\aquamind\backend\app\api\feeding.py:598:        calibration_id,
+  C:\Projects\aquamind\backend\app\api\feeding.py:599:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1107:            FeedingEvent.status == status_filter
+  C:\Projects\aquamind\backend\app\api\feeding.py:1108:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1109:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1110:    result = await session.execute(query)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1111:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1112:    return result.scalars().all()
+  C:\Projects\aquamind\backend\app\api\feeding.py:1113:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1114:@router.get(
+> C:\Projects\aquamind\backend\app\api\feeding.py:1115:    "/events/history",
+  C:\Projects\aquamind\backend\app\api\feeding.py:1116:    response_model=list[FeedingEventResponse],
+  C:\Projects\aquamind\backend\app\api\feeding.py:1117:)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1118:async def get_feeding_event_history(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1119:    system_id: UUID,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1120:    limit: int = Query(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1121:        default=50,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1122:        ge=1,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1123:        le=100,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1124:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1125:    offset: int = Query(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1126:        default=0,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1127:        ge=0,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1128:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1129:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1130:        get_db_session
+  C:\Projects\aquamind\backend\app\api\feeding.py:1131:    ),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1132:) -> list[FeedingEvent]:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1133:    system = await session.get(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1134:        AquaponicsSystem,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1135:        system_id,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1136:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1137:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1138:    if (
+  C:\Projects\aquamind\backend\app\api\feeding.py:1139:        system is None
+  C:\Projects\aquamind\backend\app\api\feeding.py:1140:        or system.deleted_at is not None
+  C:\Projects\aquamind\backend\app\api\feeding.py:1141:    ):
+  C:\Projects\aquamind\backend\app\api\feeding.py:1142:        raise HTTPException(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1143:            status_code=status.HTTP_404_NOT_FOUND,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1144:            detail="Aquaponics system not found",
+  C:\Projects\aquamind\backend\app\api\feeding.py:1145:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1146:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1147:    query = (
+  C:\Projects\aquamind\backend\app\api\feeding.py:1148:        select(FeedingEvent)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1149:        .join(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1150:            Tank,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1151:            FeedingEvent.tank_id == Tank.id,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1152:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1153:        .where(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1154:            Tank.system_id == system_id
+  C:\Projects\aquamind\backend\app\api\feeding.py:1155:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1156:        .order_by(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1157:            FeedingEvent.executed_at.desc(),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1158:            FeedingEvent.id.desc(),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1159:        )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1160:        .offset(offset)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1161:        .limit(limit)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1162:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1163:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1164:    result = await session.execute(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1165:        query
+  C:\Projects\aquamind\backend\app\api\feeding.py:1166:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1167:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1168:    return list(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1169:        result.scalars().all()
+  C:\Projects\aquamind\backend\app\api\feeding.py:1170:    )
+  C:\Projects\aquamind\backend\app\api\feeding.py:1171:
+  C:\Projects\aquamind\backend\app\api\feeding.py:1172:@router.get(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1173:    "/events/{event_id}",
+  C:\Projects\aquamind\backend\app\api\feeding.py:1174:    response_model=FeedingEventResponse,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1175:)
+  C:\Projects\aquamind\backend\app\api\feeding.py:1176:async def get_feeding_event(
+  C:\Projects\aquamind\backend\app\api\feeding.py:1177:    event_id: UUID,
+  C:\Projects\aquamind\backend\app\api\feeding.py:1178:    session: AsyncSession = Depends(get_db_session),
+  C:\Projects\aquamind\backend\app\api\feeding.py:1179:):
+  C:\Projects\aquamind\backend\app\api\feeding.py:1180:    event = await session.get(
+
+===== EXISTING HISTORY TESTS =====

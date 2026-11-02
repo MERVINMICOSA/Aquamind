@@ -1,0 +1,422 @@
+===== FISH POPULATION SCHEMAS =====
+# =========================================================
+# Fish Population Record
+# =========================================================
+
+class FishPopulationRecordCreate(BaseModel):
+    tank_id: UUID
+    species: str = Field(min_length=1, max_length=150)
+    count: int = Field(ge=0)
+    estimated_biomass_grams: float | None = Field(
+        default=None,
+        ge=0,
+    )
+    effective_at: datetime
+    recorded_by_user_id: UUID | None = None
+    notes: str | None = None
+
+
+class FishPopulationRecordUpdate(BaseModel):
+    species: str | None = Field(default=None, min_length=1, max_length=150)
+    count: int | None = Field(default=None, ge=0)
+    estimated_biomass_grams: float | None = Field(
+        default=None,
+        ge=0,
+    )
+    effective_at: datetime | None = None
+    recorded_by_user_id: UUID | None = None
+    notes: str | None = None
+
+
+class FishPopulationRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tank_id: UUID
+    species: str
+    count: int
+    estimated_biomass_grams: float | None
+    effective_at: datetime
+    recorded_by_user_id: UUID | None
+    notes: str | None
+
+
+# =========================================================
+# Feeding Event
+# =========================================================
+
+class FeedingEventCreate(BaseModel):
+    schedule_id: UUID | None = None
+    actuator_event_id: UUID
+    tank_id: UUID
+    amount_grams: float = Field(gt=0)
+    duration_seconds: float = Field(gt=0)
+    calculated_from_biomass: float | None = Field(
+        default=None,
+        ge=0,
+    )
+    calibration_id: UUID | None = None
+    executed_at: datetime
+    status: FeedingEventStatus
+    notes: str | None = None
+
+
+class FeedingEventUpdate(BaseModel):
+    amount_grams: float | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(default=None, gt=0)
+    calculated_from_biomass: float | None = Field(
+        default=None,
+        ge=0,
+    )
+    calibration_id: UUID | None = None
+    executed_at: datetime | None = None
+    status: FeedingEventStatus | None = None
+    notes: str | None = None
+
+
+class FeedingEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    schedule_id: UUID | None
+    actuator_event_id: UUID
+    tank_id: UUID
+    amount_grams: float
+    duration_seconds: float
+    calculated_from_biomass: float | None
+    calibration_id: UUID | None
+    executed_at: datetime
+    status: FeedingEventStatus
+    notes: str | None
+
+===== FISH POPULATION API =====
+# Fish Population Records
+# ============================================================
+
+@router.get(
+    "/population",
+    response_model=list[FishPopulationRecordResponse],
+)
+async def list_population_records(
+    tank_id: UUID | None = None,
+    session: AsyncSession = Depends(get_db_session),
+):
+    query = (
+        select(FishPopulationRecord)
+        .order_by(FishPopulationRecord.effective_at.desc())
+    )
+
+    if tank_id is not None:
+        query = query.where(
+            FishPopulationRecord.tank_id == tank_id
+        )
+
+    result = await session.execute(query)
+
+    return result.scalars().all()
+
+
+@router.get(
+    "/population/{record_id}",
+    response_model=FishPopulationRecordResponse,
+)
+async def get_population_record(
+    record_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+):
+    record = await session.get(
+        FishPopulationRecord,
+        record_id,
+    )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fish population record not found",
+        )
+
+    return record
+
+
+@router.post(
+    "/population",
+    response_model=FishPopulationRecordResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_population_record(
+    payload: FishPopulationRecordCreate,
+    session: AsyncSession = Depends(
+        get_db_session
+    ),
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
+    tank = await session.get(
+        Tank,
+        payload.tank_id,
+    )
+
+    if (
+        tank is None
+        or tank.deleted_at is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tank not found",
+        )
+
+    record = FishPopulationRecord(
+        tank_id=payload.tank_id,
+        species=payload.species,
+        count=payload.count,
+        estimated_biomass_grams=(
+            payload.estimated_biomass_grams
+        ),
+        effective_at=payload.effective_at,
+
+        # Recorder identity is authoritative from
+        # authentication, never from the request.
+        recorded_by_user_id=current_user.id,
+
+        notes=payload.notes,
+    )
+
+    session.add(
+        record
+    )
+
+    await session.commit()
+    await session.refresh(
+        record
+    )
+
+    await create_audit_log(
+        session,
+        user_id=current_user.id,
+        action=AuditAction.CREATE,
+        entity_type="fish_population_record",
+        entity_id=record.id,
+        new_value=(
+            _fish_population_record_audit_snapshot(
+                record
+            )
+        ),
+    )
+
+    return record
+
+
+@router.patch(
+    "/population/{record_id}",
+    response_model=FishPopulationRecordResponse,
+)
+async def update_population_record(
+    record_id: UUID,
+    payload: FishPopulationRecordUpdate,
+    session: AsyncSession = Depends(
+        get_db_session
+    ),
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
+    record = await session.get(
+        FishPopulationRecord,
+        record_id,
+    )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fish population record not found",
+        )
+
+    updates = payload.model_dump(
+        exclude_unset=True
+    )
+
+    # Preserve original recorder provenance.
+    # The authenticated modifier is instead captured
+    # by AuditLog.user_id.
+    updates.pop(
+        "recorded_by_user_id",
+        None,
+    )
+
+    old_value = {
+        field: _audit_value(
+            getattr(
+                record,
+                field,
+            )
+        )
+        for field in updates
+    }
+
+    for field, value in updates.items():
+        setattr(
+            record,
+            field,
+            value,
+        )
+
+    await session.commit()
+    await session.refresh(
+        record
+    )
+
+    new_value = {
+        field: _audit_value(
+            getattr(
+                record,
+                field,
+            )
+        )
+        for field in updates
+    }
+
+    await create_audit_log(
+        session,
+        user_id=current_user.id,
+        action=AuditAction.UPDATE,
+        entity_type="fish_population_record",
+        entity_id=record.id,
+        old_value=old_value,
+        new_value=new_value,
+    )
+
+    return record
+
+
+@router.delete(
+    "/population/{record_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_population_record(
+    record_id: UUID,
+    session: AsyncSession = Depends(
+        get_db_session
+    ),
+    current_user: User = Depends(
+        require_admin
+    ),
+):
+    record = await session.get(
+        FishPopulationRecord,
+        record_id,
+    )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fish population record not found",
+        )
+
+    old_value = (
+        _fish_population_record_audit_snapshot(
+            record
+        )
+    )
+
+    entity_id = record.id
+
+    await session.delete(
+        record
+    )
+
+    await session.commit()
+
+    await create_audit_log(
+        session,
+        user_id=current_user.id,
+        action=AuditAction.DELETE,
+        entity_type="fish_population_record",
+        entity_id=entity_id,
+        old_value=old_value,
+        new_value=None,
+    )
+
+
+# ============================================================
+# Feeding Events
+# ============================================================
+
+@router.get(
+    "/events",
+    response_model=list[FeedingEventResponse],
+)
+async def list_feeding_events(
+    tank_id: UUID | None = None,
+    schedule_id: UUID | None = None,
+    status_filter: str | None = None,
+
+===== FISH POPULATION SERVICE REFERENCES =====
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=22; Line=    FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=43; Line=    FishPopulationRecordCreate,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=44; Line=    FishPopulationRecordResponse,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=45; Line=    FishPopulationRecordUpdate,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=142; Line=    record: FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=154; Line=        "estimated_biomass_grams": _audit_value(}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=155; Line=            record.estimated_biomass_grams}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=833; Line=    response_model=list[FishPopulationRecordResponse],}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=840; Line=        select(FishPopulationRecord)}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=841; Line=        .order_by(FishPopulationRecord.effective_at.desc())}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=846; Line=            FishPopulationRecord.tank_id == tank_id}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=856; Line=    response_model=FishPopulationRecordResponse,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=863; Line=        FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=878; Line=    response_model=FishPopulationRecordResponse,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=882; Line=    payload: FishPopulationRecordCreate,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=904; Line=    record = FishPopulationRecord(}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=908; Line=        estimated_biomass_grams=(}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=909; Line=            payload.estimated_biomass_grams}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=947; Line=    response_model=FishPopulationRecordResponse,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=951; Line=    payload: FishPopulationRecordUpdate,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=960; Line=        FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\api\feeding.py; LineNumber=1041; Line=        FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\models\feeding.py; LineNumber=45; Line=class FishPopulationRecord(UUIDPrimaryKeyMixin, Base):}
+@{Path=C:\Projects\aquamind\backend\app\models\feeding.py; LineNumber=51; Line=    estimated_biomass_grams: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)}
+@{Path=C:\Projects\aquamind\backend\app\models\system.py; LineNumber=27; Line=    population_records: Mapped[list["FishPopulationRecord"]] = relationship(back_populates="recorded_by_user")}
+@{Path=C:\Projects\aquamind\backend\app\models\system.py; LineNumber=96; Line=    fish_population_records: Mapped[list["FishPopulationRecord"]] = relationship(back_populates="tank", cascade="all, delete-orphan")}
+@{Path=C:\Projects\aquamind\backend\app\models\__init__.py; LineNumber=13; Line=from app.models.feeding import FeedingSchedule, FeederCalibration, FeedingEvent, FishPopulationRecord}
+@{Path=C:\Projects\aquamind\backend\app\models\__init__.py; LineNumber=35; Line=    "FishPopulationRecord",}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=100; Line=class FishPopulationRecordCreate(BaseModel):}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=104; Line=    estimated_biomass_grams: float | None = Field(}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=113; Line=class FishPopulationRecordUpdate(BaseModel):}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=116; Line=    estimated_biomass_grams: float | None = Field(}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=125; Line=class FishPopulationRecordResponse(BaseModel):}
+@{Path=C:\Projects\aquamind\backend\app\schemas\feeding.py; LineNumber=132; Line=    estimated_biomass_grams: float | None}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=15; Line=    FishPopulationRecord,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=41; Line=    daily_feed_rate_percent: float}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=42; Line=    feeds_per_day: int}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=60; Line=    population: FishPopulationRecord}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=104; Line=    daily_feed_rate_percent: float,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=105; Line=    feeds_per_day: int,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=113; Line=    if daily_feed_rate_percent <= 0:}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=118; Line=    if feeds_per_day <= 0:}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=133; Line=        * daily_feed_rate_percent}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=139; Line=        / feeds_per_day}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=172; Line=    daily_feed_rate_percent: float,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=173; Line=    feeds_per_day: int,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=186; Line=        daily_feed_rate_percent=daily_feed_rate_percent,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=187; Line=        feeds_per_day=feeds_per_day,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=193; Line=        * daily_feed_rate_percent}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=199; Line=        / feeds_per_day}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=220; Line=        daily_feed_rate_percent=daily_feed_rate_percent,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=221; Line=        feeds_per_day=feeds_per_day,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=374; Line=        select(FishPopulationRecord)}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=376; Line=            FishPopulationRecord.tank_id == tank.id,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=377; Line=            FishPopulationRecord.effective_at <= effective_time,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=380; Line=            FishPopulationRecord.effective_at.desc()}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=394; Line=    if population.estimated_biomass_grams is None:}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=458; Line=    daily_feed_rate_percent: float,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=459; Line=    feeds_per_day: int,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=476; Line=        context.population.estimated_biomass_grams}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=481; Line=        daily_feed_rate_percent=daily_feed_rate_percent,}
+@{Path=C:\Projects\aquamind\backend\app\services\feeding_service.py; LineNumber=482; Line=        feeds_per_day=feeds_per_day,}
+
+===== RELEVANT TEST FILES =====
+@{Name=test_feeding_api.py; FullName=C:\Projects\aquamind\backend\tests\test_feeding_api.py}
+@{Name=test_feeding_context_service.py; FullName=C:\Projects\aquamind\backend\tests\test_feeding_context_service.py}
+@{Name=test_fish_population_authorization_audit.py; FullName=C:\Projects\aquamind\backend\tests\test_fish_population_authorization_audit.py}
+@{Name=test_phase_4c.py; FullName=C:\Projects\aquamind\backend\tests\test_phase_4c.py}

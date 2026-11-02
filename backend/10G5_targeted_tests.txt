@@ -1,0 +1,909 @@
+===== POPULATION AUTHORIZATION / AUDIT =====
+from __future__ import annotations
+
+from types import SimpleNamespace
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.routing import APIRoute
+from sqlalchemy import select
+
+from app.api.dependencies import (
+    get_current_user,
+    require_admin,
+)
+from app.api.feeding import router
+from app.db.enums import UserRole
+from app.main import app
+from app.models.other import AuditLog
+from app.models.system import User
+
+
+pytestmark = pytest.mark.asyncio
+
+
+async def create_admin(
+    session,
+):
+    user = User(
+        username="fish-population-audit-admin",
+        password_hash="test-password-hash",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+
+    session.add(user)
+
+    await session.commit()
+    await session.refresh(user)
+
+    return user
+
+
+async def use_current_user(
+    user,
+):
+    async def override_get_current_user():
+        return user
+
+    app.dependency_overrides[
+        get_current_user
+    ] = override_get_current_user
+
+
+async def create_tank(
+    client,
+):
+    system_response = await client.post(
+        "/api/v1/systems",
+        json={
+            "name": "Fish Population Audit System",
+            "description": (
+                "System for fish population "
+                "authorization testing."
+            ),
+            "timezone": "UTC",
+            "is_active": True,
+        },
+    )
+
+    assert system_response.status_code == 201
+
+    system_id = system_response.json()["id"]
+
+    tank_response = await client.post(
+        "/api/v1/tanks",
+        json={
+            "system_id": system_id,
+            "name": "Fish Population Audit Tank",
+            "capacity_liters": 1000,
+            "species": "Tilapia",
+            "is_active": True,
+        },
+    )
+
+    assert tank_response.status_code == 201
+
+    return tank_response.json()["id"]
+
+
+def build_population_payload(
+    tank_id: str,
+):
+    return {
+        "tank_id": tank_id,
+        "species": "Tilapia",
+        "count": 100,
+        "estimated_biomass_grams": 25000.0,
+        "effective_at": (
+            "2026-01-01T09:00:00Z"
+        ),
+
+        # Deliberately present so the test can
+        # prove that client attribution is ignored.
+        "recorded_by_user_id": str(
+            uuid4()
+        ),
+
+        "notes": (
+            "Initial population record."
+        ),
+    }
+
+
+async def test_population_create_uses_authenticated_recorder_and_audits(
+    test_session,
+    client,
+):
+    admin = await create_admin(
+        test_session
+    )
+
+    await use_current_user(
+        admin
+    )
+
+    tank_id = await create_tank(
+        client
+    )
+
+    response = await client.post(
+        "/api/v1/feeding/population",
+        json=build_population_payload(
+            tank_id
+        ),
+    )
+
+    assert response.status_code == 201
+
+    population = response.json()
+
+    assert (
+        population["recorded_by_user_id"]
+        == str(admin.id)
+    )
+
+    population_id = UUID(
+        population["id"]
+    )
+
+    result = await test_session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.entity_id
+            == population_id
+        )
+        .where(
+            AuditLog.action
+            == "create"
+        )
+    )
+
+    audit = result.scalars().one()
+
+    assert audit.user_id == admin.id
+    assert audit.action == "create"
+
+    assert (
+        audit.entity_type
+        == "fish_population_record"
+    )
+
+    assert (
+        audit.entity_id
+        == population_id
+    )
+
+    assert audit.source == "api"
+    assert audit.old_value is None
+
+    assert (
+        audit.new_value["tank_id"]
+        == tank_id
+    )
+
+    assert (
+        audit.new_value["species"]
+        == "Tilapia"
+    )
+
+    assert (
+        audit.new_value["count"]
+        == 100
+    )
+
+    assert (
+        audit.new_value[
+            "estimated_biomass_grams"
+        ]
+        == 25000.0
+    )
+
+    assert (
+        audit.new_value[
+            "recorded_by_user_id"
+        ]
+        == str(admin.id)
+    )
+
+
+async def test_population_update_preserves_original_recorder_and_audits_modifier(
+    test_session,
+    client,
+):
+    admin = await create_admin(
+        test_session
+    )
+
+    await use_current_user(
+        admin
+    )
+
+    tank_id = await create_tank(
+        client
+    )
+
+    create_response = await client.post(
+        "/api/v1/feeding/population",
+        json=build_population_payload(
+            tank_id
+        ),
+    )
+
+    assert create_response.status_code == 201
+
+    population_id = UUID(
+        create_response.json()["id"]
+    )
+
+    original_recorder = (
+        create_response.json()[
+            "recorded_by_user_id"
+        ]
+    )
+
+    spoofed_recorder = uuid4()
+
+    response = await client.patch(
+        (
+            "/api/v1/feeding/population/"
+            f"{population_id}"
+        ),
+        json={
+            "count": 95,
+            "estimated_biomass_grams": 24000.0,
+            "notes": (
+                "Population updated after sampling."
+            ),
+            "recorded_by_user_id": str(
+                spoofed_recorder
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+
+    updated = response.json()
+
+    assert updated["count"] == 95
+
+    assert (
+        updated["estimated_biomass_grams"]
+        == 24000.0
+    )
+
+    assert (
+        updated["recorded_by_user_id"]
+        == original_recorder
+    )
+
+    assert (
+        updated["recorded_by_user_id"]
+        != str(spoofed_recorder)
+    )
+
+    result = await test_session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.entity_id
+            == population_id
+        )
+        .where(
+            AuditLog.action
+            == "update"
+        )
+    )
+
+    audit = result.scalars().one()
+
+    assert audit.user_id == admin.id
+
+    assert (
+        audit.entity_type
+        == "fish_population_record"
+    )
+
+    assert audit.old_value == {
+        "count": 100,
+        "estimated_biomass_grams": 25000.0,
+        "notes": (
+            "Initial population record."
+        ),
+    }
+
+    assert audit.new_value == {
+        "count": 95,
+        "estimated_biomass_grams": 24000.0,
+        "notes": (
+            "Population updated after sampling."
+        ),
+    }
+
+
+async def test_admin_delete_population_record_creates_audit_log(
+    test_session,
+    client,
+):
+    admin = await create_admin(
+        test_session
+    )
+
+    await use_current_user(
+        admin
+    )
+
+    tank_id = await create_tank(
+        client
+    )
+
+    create_response = await client.post(
+        "/api/v1/feeding/population",
+        json=build_population_payload(
+            tank_id
+        ),
+    )
+
+    assert create_response.status_code == 201
+
+    population_id = UUID(
+        create_response.json()["id"]
+    )
+
+    response = await client.delete(
+        (
+            "/api/v1/feeding/population/"
+            f"{population_id}"
+        )
+    )
+
+    assert response.status_code == 204
+
+    result = await test_session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.entity_id
+            == population_id
+        )
+        .where(
+            AuditLog.action
+            == "delete"
+        )
+    )
+
+    audit = result.scalars().one()
+
+    assert audit.user_id == admin.id
+    assert audit.action == "delete"
+
+    assert (
+        audit.entity_type
+        == "fish_population_record"
+    )
+
+    assert (
+        audit.entity_id
+        == population_id
+    )
+
+    assert audit.source == "api"
+
+    assert (
+        audit.old_value["tank_id"]
+        == tank_id
+    )
+
+    assert (
+        audit.old_value["species"]
+        == "Tilapia"
+    )
+
+    assert (
+        audit.old_value["count"]
+        == 100
+    )
+
+    assert (
+        audit.old_value[
+            "estimated_biomass_grams"
+        ]
+        == 25000.0
+    )
+
+    assert (
+        audit.old_value[
+            "recorded_by_user_id"
+        ]
+        == str(admin.id)
+    )
+
+    assert audit.new_value is None
+
+    get_response = await client.get(
+        (
+            "/api/v1/feeding/population/"
+            f"{population_id}"
+        )
+    )
+
+    assert get_response.status_code == 404
+
+
+async def test_non_admin_cannot_delete_population_record(
+    test_session,
+    client,
+):
+    admin = await create_admin(
+        test_session
+    )
+
+    await use_current_user(
+        admin
+    )
+
+    tank_id = await create_tank(
+        client
+    )
+
+    create_response = await client.post(
+        "/api/v1/feeding/population",
+        json=build_population_payload(
+            tank_id
+        ),
+    )
+
+    assert create_response.status_code == 201
+
+    population_id = UUID(
+        create_response.json()["id"]
+    )
+
+    non_admin = SimpleNamespace(
+        id=uuid4(),
+        role="non-admin",
+        is_active=True,
+    )
+
+    await use_current_user(
+        non_admin
+    )
+
+    response = await client.delete(
+        (
+            "/api/v1/feeding/population/"
+            f"{population_id}"
+        )
+    )
+
+    assert response.status_code == 403
+
+    assert response.json() == {
+        "detail": (
+            "Administrator access required"
+        )
+    }
+
+
+async def test_population_mutation_authorization_policy():
+    expected = {
+        (
+            "POST",
+            "/feeding/population",
+        ),
+        (
+            "PATCH",
+            "/feeding/population/{record_id}",
+        ),
+        (
+            "DELETE",
+            "/feeding/population/{record_id}",
+        ),
+    }
+
+    discovered = set()
+
+    for route_item in router.routes:
+        if not isinstance(
+            route_item,
+            APIRoute,
+        ):
+            continue
+
+        for method in (
+            route_item.methods or set()
+        ):
+            route_key = (
+                method,
+                route_item.path,
+            )
+
+            if route_key not in expected:
+                continue
+
+            discovered.add(
+                route_key
+            )
+
+            dependency_calls = {
+                dependency.call
+                for dependency
+                in route_item.dependant.dependencies
+            }
+
+            if method in {
+                "POST",
+                "PATCH",
+            }:
+                assert (
+                    get_current_user
+                    in dependency_calls
+                )
+
+                assert (
+                    require_admin
+                    not in dependency_calls
+                )
+
+            elif method == "DELETE":
+                assert (
+                    require_admin
+                    in dependency_calls
+                )
+
+    assert discovered == expected
+
+===== POPULATION CONTEXT SELECTION =====
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:9:)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:10:from app.models.actuators import Actuator
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:11:from app.models.feeding import (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:12:    FeederCalibration,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:13:    FeedingSchedule,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:14:    FishPopulationRecord,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:15:)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:16:from app.models.system import (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:17:    AquaponicsSystem,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:18:    Tank,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:19:)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:20:from app.services.feeding_service import (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:21:    FeedingCalculationError,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:22:    FeedingContextError,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:23:    prepare_feeding_plan,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:24:    resolve_feeding_context,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:25:)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:26:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:132:    await session.refresh(schedule)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:133:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:134:    return schedule
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:135:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:136:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:137:async def create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:138:    session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:139:    tank,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:140:    *,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:141:    biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:142:    effective_at=None,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:143:):
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:144:    record = FishPopulationRecord(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:145:        tank_id=tank.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:146:        species="Tilapia",
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:147:        count=100,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:148:        estimated_biomass_grams=biomass,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:149:        effective_at=(
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:150:            effective_at
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:151:            or datetime.now(timezone.utc)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:152:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:153:        recorded_by_user_id=None,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:154:        notes=None,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:155:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:156:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:157:    session.add(record)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:158:    await session.commit()
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:159:    await session.refresh(record)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:160:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:161:    return record
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:162:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:223:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:224:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:225:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:226:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:227:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:228:    older_population = await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:229:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:230:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:231:        biomass=20000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:232:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:233:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:234:            - timedelta(days=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:235:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:236:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:237:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:238:    newer_population = await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:239:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:240:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:241:        biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:242:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:243:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:244:            - timedelta(days=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:245:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:246:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:247:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:248:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:249:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:250:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:251:        biomass=30000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:252:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:253:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:254:            + timedelta(days=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:255:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:256:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:257:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:258:    older_calibration = await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:259:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:260:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:261:        performed_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:262:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:263:            - timedelta(days=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:264:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:294:        tank_id=tank.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:295:        as_of=base_time,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:296:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:297:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:298:    assert (
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:299:        older_population.id
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:300:        != newer_population.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:301:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:302:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:303:    assert (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:304:        older_calibration.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:305:        != newer_calibration.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:306:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:307:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:308:    assert (
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:309:        context.population.id
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:310:        == newer_population.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:311:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:312:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:313:    assert (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:314:        context.calibration.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:315:        == newer_calibration.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:316:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:317:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:318:    assert (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:319:        float(
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:320:            context.population
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:321:            .estimated_biomass_grams
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:322:        )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:323:        == 25000.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:324:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:325:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:326:    assert context.max_runtime_seconds == 30.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:327:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:328:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:329:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:330:# DISABLED SCHEDULE
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:331:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:332:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:333:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:557:            tank_id=target_tank.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:558:        )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:559:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:560:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:561:# ============================================================
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:562:# POPULATION REQUIRED
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:563:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:564:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:565:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:566:async def test_population_record_is_required(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:567:    test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:568:):
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:569:    system = await create_system(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:570:        test_session
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:571:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:572:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:573:    tank = await create_tank(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:574:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:575:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:576:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:577:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:578:    actuator = await create_feeder(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:593:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:594:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:595:    with pytest.raises(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:596:        FeedingContextError,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:597:        match=(
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:598:            "No applicable fish population "
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:599:            "record found"
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:600:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:601:    ):
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:602:        await resolve_feeding_context(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:603:            test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:604:            schedule_id=schedule.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:605:            tank_id=tank.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:606:        )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:607:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:608:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:609:# ============================================================
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:610:# BIOMASS REQUIRED
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:611:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:612:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:613:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:614:async def test_population_requires_biomass_estimate(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:615:    test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:616:):
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:617:    system = await create_system(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:618:        test_session
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:619:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:620:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:621:    tank = await create_tank(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:622:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:623:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:624:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:625:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:626:    actuator = await create_feeder(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:633:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:634:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:635:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:636:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:637:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:638:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:639:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:640:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:641:        biomass=None,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:642:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:643:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:644:    await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:645:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:646:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:647:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:648:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:649:    with pytest.raises(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:650:        FeedingContextError,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:651:        match=(
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:652:            "Latest fish population record "
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:653:            "does not contain a biomass estimate"
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:654:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:655:    ):
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:656:        await resolve_feeding_context(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:657:            test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:658:            schedule_id=schedule.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:659:            tank_id=tank.id,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:660:        )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:661:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:662:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:663:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:664:# CALIBRATION REQUIRED
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:665:# ============================================================
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:687:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:688:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:689:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:690:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:691:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:692:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:693:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:694:        tank,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:695:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:696:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:697:    with pytest.raises(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:698:        FeedingContextError,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:699:        match=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:700:            "No applicable feeder "
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:701:            "calibration found"
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:702:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:703:    ):
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:704:        await resolve_feeding_context(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:737:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:738:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:739:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:740:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:741:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:742:    population = await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:743:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:744:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:745:        biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:746:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:747:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:748:            - timedelta(minutes=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:749:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:750:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:751:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:752:    calibration = await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:753:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:754:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:755:        performed_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:756:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:757:            - timedelta(minutes=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:758:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:772:    assert prepared.schedule_id == schedule.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:773:    assert prepared.actuator_id == actuator.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:774:    assert prepared.tank_id == tank.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:775:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:776:    assert (
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:777:        prepared.population_record_id
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:778:        == population.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:779:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:780:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:781:    assert (
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:782:        prepared.calibration_id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:783:        == calibration.id
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:784:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:785:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:786:    assert prepared.max_runtime_seconds == 30.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:787:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:788:    assert prepared.plan.biomass_grams == pytest.approx(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:789:        25000.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:790:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:791:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:792:    assert prepared.plan.daily_feed_grams == pytest.approx(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:793:        250.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:794:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:795:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:796:    assert prepared.plan.amount_grams == pytest.approx(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:797:        50.0
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:798:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:799:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:800:    assert prepared.plan.grams_per_second == pytest.approx(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:837:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:838:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:839:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:840:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:841:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:842:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:843:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:844:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:845:        biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:846:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:847:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:848:            - timedelta(minutes=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:849:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:850:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:851:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:852:    await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:853:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:854:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:855:        performed_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:856:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:857:            - timedelta(minutes=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:858:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:921:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:922:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:923:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:924:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:925:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:926:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:927:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:928:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:929:        biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:930:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:931:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:932:            - timedelta(minutes=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:933:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:934:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:935:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:936:    # 20 g / 10 s = 2 g/s
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:937:    await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:938:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:939:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:940:        performed_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:941:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:942:            - timedelta(minutes=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:992:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:993:        system,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:994:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:995:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:996:
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:997:    await create_population(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:998:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:999:        tank,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1000:        biomass=25000.0,
+> C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1001:        effective_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1002:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1003:            - timedelta(minutes=2)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1004:        ),
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1005:    )
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1006:
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1007:    await create_calibration(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1008:        test_session,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1009:        actuator,
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1010:        performed_at=(
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1011:            base_time
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1012:            - timedelta(minutes=1)
+  C:\Projects\aquamind\backend\tests\test_feeding_context_service.py:1013:        ),

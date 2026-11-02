@@ -1,0 +1,69 @@
+{
+  "profile_version": 1,
+  "project": "AquaMind",
+
+  "controller": {
+    "manufacturer": "Raspberry Pi",
+    "model": "Raspberry Pi 5",
+    "ram_gb": 4
+  },
+
+  "components": {
+    "relay_module": {
+      "quantity": 1,
+      "channels": 8,
+      "model": null,
+      "logic_voltage_v": null,
+      "active_high": null
+    },
+
+    "ph_sensor": {
+      "quantity": 1,
+      "model": null,
+      "interface": null
+    },
+
+    "temperature_sensor": {
+      "quantity": 1,
+      "model": "DS18B20",
+      "interface": "1-wire"
+    },
+
+    "fans": {
+      "quantity": 2,
+      "rated_voltage_v": 12,
+      "role_assignment": null
+    },
+
+    "water_pump": {
+      "quantity": 1,
+      "model": null,
+      "rated_voltage_v": null,
+      "rated_current_a": null
+    },
+
+    "tds_sensor": {
+      "quantity": 1,
+      "model": null,
+      "interface": null
+    },
+
+    "water_level_sensor": {
+      "quantity": 1,
+      "model": null,
+      "interface": null
+    },
+
+    "jumper_cables": {
+      "male": true,
+      "female": true
+    }
+  },
+
+  "deployment": {
+    "hardware_enabled": false,
+    "gpio_chip": null,
+    "allowed_bcm_pins": [],
+    "relay_channels": []
+  }
+}

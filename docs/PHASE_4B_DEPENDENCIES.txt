@@ -1,0 +1,11 @@
+Phase 4B dependency reference
+
+The Phase 4B model/session foundation expects:
+
+SQLAlchemy>=2.0,<2.1
+asyncpg>=0.29
+aiosqlite>=0.20
+pytest>=8.0
+
+Do not replace an existing project requirements file blindly.
+Merge these requirements into the project's existing backend dependency setup if they are not already present.

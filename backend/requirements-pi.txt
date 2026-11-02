@@ -1,0 +1,31 @@
+-r requirements.txt
+
+# ============================================================
+# AQUAMIND - RASPBERRY PI HARDWARE DEPENDENCIES
+# ============================================================
+#
+# Base backend dependencies are inherited from requirements.txt.
+#
+# Raspberry Pi GPIO dependencies stay separate from the normal
+# AquaMind development environment.
+#
+# GPIO Zero:
+#     High-level GPIO abstraction used by AquaMind.
+#
+# lgpio:
+#     GPIO backend used on Raspberry Pi when running Python
+#     versions for which upstream ARM wheels are available.
+#
+# adafruit-lgpio:
+#     Drop-in lgpio implementation used on Raspberry Pi with
+#     Python 3.13 or newer.
+#
+# No GPIO pins, gpiochip number, relay polarity, or physical
+# device mappings are configured here.
+# ============================================================
+
+gpiozero>=2.0,<3.0; sys_platform == "linux"
+
+lgpio>=0.2.2.0,<1.0; sys_platform == "linux" and python_version < "3.13" and (platform_machine == "aarch64" or platform_machine == "armv7l")
+
+adafruit-lgpio>=0.2.2.0,<1.0; sys_platform == "linux" and python_version >= "3.13" and (platform_machine == "aarch64" or platform_machine == "armv7l")

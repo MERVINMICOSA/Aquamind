@@ -1,0 +1,421 @@
+===== FRONTEND DASHBOARD TYPES =====
+export interface AquaponicsSystem {
+  id: string
+  name: string
+  description: string | null
+  timezone: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DashboardSensor {
+  id: string
+  system_id: string
+  name: string
+
+  sensor_type: string
+  measurement_type: string
+
+  location_type: string
+  location_id: string | null
+
+  unit: string
+  hardware_identifier: string | null
+
+  is_simulated: boolean
+  is_enabled: boolean
+
+  sampling_interval_seconds: number
+  calibration_status: string
+
+  created_at: string
+  updated_at: string
+}
+
+export interface DashboardSensorReading {
+  id: string
+  sensor_id: string
+
+  recorded_at: string
+  value_numeric: number
+  unit: string
+
+  quality_status: string
+  source: string
+
+  sequence_number: number | null
+  created_at: string
+}
+
+export interface DashboardActuator {
+  id: string
+  system_id: string
+  name: string
+
+  actuator_type: string
+  control_mode: string
+
+  hardware_identifier: string | null
+
+  location_type: string | null
+  location_id: string | null
+
+  is_enabled: boolean
+
+  safety_config:
+    Record<string, unknown> | null
+
+  current_state: string
+  current_value: number | null
+  last_state_at: string | null
+
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface DashboardAlert {
+  id: string
+  system_id: string
+
+  sensor_id: string | null
+  actuator_id: string | null
+
+  alert_type: string
+  severity: string
+  message: string
+
+  trigger_value: number | null
+  threshold_id: string | null
+
+  status: string
+
+  created_at: string
+
+  acknowledged_at: string | null
+  acknowledged_by_user_id:
+    string | null
+
+  resolved_at: string | null
+  resolution_reason: string | null
+}
+
+export interface SystemDashboardOverview {
+  sensors: DashboardSensor[]
+  actuators: DashboardActuator[]
+  alerts: DashboardAlert[]
+  latestReadings: DashboardSensorReading[]
+}
+
+===== FRONTEND DASHBOARD SERVICE =====
+import type {
+  AquaponicsSystem,
+  DashboardActuator,
+  DashboardAlert,
+  DashboardSensor,
+  DashboardSensorReading,
+  SystemDashboardOverview,
+} from '../types/dashboard'
+
+import {
+  apiRequest,
+} from './apiClient'
+
+
+export async function listSystems():
+  Promise<AquaponicsSystem[]> {
+  return apiRequest<AquaponicsSystem[]>(
+    'systems',
+  )
+}
+
+
+export async function loadSystemDashboardOverview(
+  systemId: string,
+): Promise<SystemDashboardOverview> {
+  const encodedSystemId =
+    encodeURIComponent(
+      systemId,
+    )
+
+  const [
+    sensors,
+    actuators,
+    alerts,
+    latestReadings,
+  ] = await Promise.all([
+    apiRequest<DashboardSensor[]>(
+      `sensors?system_id=${encodedSystemId}`,
+    ),
+
+    apiRequest<DashboardActuator[]>(
+      `actuators?system_id=${encodedSystemId}`,
+    ),
+
+    apiRequest<DashboardAlert[]>(
+      `alerts?system_id=${encodedSystemId}`,
+    ),
+
+    apiRequest<DashboardSensorReading[]>(
+      `sensor-readings/latest?system_id=${encodedSystemId}`,
+    ),
+  ])
+
+  return {
+    sensors,
+    actuators,
+    alerts,
+    latestReadings,
+  }
+}
+
+===== FRONTEND TANK REFERENCES =====
+@{Path=C:\Projects\aquamind\frontend\src\pages\ActuatorsPage.test.tsx; LineNumber=77; Line=    'tank',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\DashboardPage.test.tsx; LineNumber=56; Line=    'tank',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.test.tsx; LineNumber=147; Line=    'tank',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.test.tsx; LineNumber=150; Line=    'tank-1',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.test.tsx; LineNumber=411; Line=        tank_id:}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.test.tsx; LineNumber=412; Line=          'tank-1',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.test.tsx; LineNumber=630; Line=            'tank-1',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.tsx; LineNumber=1303; Line=                            <th>Tank ID</th>}
+@{Path=C:\Projects\aquamind\frontend\src\pages\FeedingPage.tsx; LineNumber=1362; Line=                                          .tank_id}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorDetailPage.test.tsx; LineNumber=60; Line=    'Tank pH Sensor',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorDetailPage.test.tsx; LineNumber=69; Line=    'tank',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorDetailPage.test.tsx; LineNumber=280; Line=                'Tank pH Sensor',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorsPage.test.tsx; LineNumber=89; Line=    'Tank pH Sensor',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorsPage.test.tsx; LineNumber=98; Line=    'tank',}
+@{Path=C:\Projects\aquamind\frontend\src\pages\SensorsPage.test.tsx; LineNumber=234; Line=            'Tank pH Sensor',}
+@{Path=C:\Projects\aquamind\frontend\src\services\feedingService.test.ts; LineNumber=51; Line=    tank_id: 'tank-1',}
+@{Path=C:\Projects\aquamind\frontend\src\types\feeding.ts; LineNumber=69; Line=  tank_id: string}
+
+===== BACKEND TANK ROUTES =====
+  C:\Projects\aquamind\backend\app\api\tanks.py:17:    AquaponicsSystem,
+  C:\Projects\aquamind\backend\app\api\tanks.py:18:    Tank,
+  C:\Projects\aquamind\backend\app\api\tanks.py:19:    User,
+  C:\Projects\aquamind\backend\app\api\tanks.py:20:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:21:from app.schemas.tank import (
+> C:\Projects\aquamind\backend\app\api\tanks.py:22:    TankCreate,
+> C:\Projects\aquamind\backend\app\api\tanks.py:23:    TankResponse,
+> C:\Projects\aquamind\backend\app\api\tanks.py:24:    TankUpdate,
+  C:\Projects\aquamind\backend\app\api\tanks.py:25:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:26:from app.services.audit_service import (
+  C:\Projects\aquamind\backend\app\api\tanks.py:27:    AuditAction,
+  C:\Projects\aquamind\backend\app\api\tanks.py:28:    create_audit_log,
+  C:\Projects\aquamind\backend\app\api\tanks.py:29:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:30:
+  C:\Projects\aquamind\backend\app\api\tanks.py:31:
+  C:\Projects\aquamind\backend\app\api\tanks.py:32:router = APIRouter(
+> C:\Projects\aquamind\backend\app\api\tanks.py:33:    prefix="/tanks",
+  C:\Projects\aquamind\backend\app\api\tanks.py:34:    tags=["tanks"],
+  C:\Projects\aquamind\backend\app\api\tanks.py:35:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:36:
+  C:\Projects\aquamind\backend\app\api\tanks.py:37:
+  C:\Projects\aquamind\backend\app\api\tanks.py:38:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:39:# AUDIT HELPERS
+  C:\Projects\aquamind\backend\app\api\tanks.py:40:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:41:
+  C:\Projects\aquamind\backend\app\api\tanks.py:42:
+  C:\Projects\aquamind\backend\app\api\tanks.py:43:def _audit_value(
+  C:\Projects\aquamind\backend\app\api\tanks.py:44:    value,
+  C:\Projects\aquamind\backend\app\api\tanks.py:45:):
+  C:\Projects\aquamind\backend\app\api\tanks.py:46:    if isinstance(value, UUID):
+  C:\Projects\aquamind\backend\app\api\tanks.py:47:        return str(value)
+  C:\Projects\aquamind\backend\app\api\tanks.py:48:
+  C:\Projects\aquamind\backend\app\api\tanks.py:49:    if isinstance(value, datetime):
+  C:\Projects\aquamind\backend\app\api\tanks.py:50:        return value.isoformat()
+  C:\Projects\aquamind\backend\app\api\tanks.py:51:
+  C:\Projects\aquamind\backend\app\api\tanks.py:52:    if isinstance(value, Decimal):
+  C:\Projects\aquamind\backend\app\api\tanks.py:53:        return float(value)
+  C:\Projects\aquamind\backend\app\api\tanks.py:54:
+  C:\Projects\aquamind\backend\app\api\tanks.py:55:    if isinstance(value, Enum):
+  C:\Projects\aquamind\backend\app\api\tanks.py:56:        return value.value
+  C:\Projects\aquamind\backend\app\api\tanks.py:57:
+  C:\Projects\aquamind\backend\app\api\tanks.py:58:    return value
+  C:\Projects\aquamind\backend\app\api\tanks.py:59:
+  C:\Projects\aquamind\backend\app\api\tanks.py:60:
+  C:\Projects\aquamind\backend\app\api\tanks.py:61:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:62:# READ
+  C:\Projects\aquamind\backend\app\api\tanks.py:63:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:64:
+  C:\Projects\aquamind\backend\app\api\tanks.py:65:
+  C:\Projects\aquamind\backend\app\api\tanks.py:66:@router.get(
+  C:\Projects\aquamind\backend\app\api\tanks.py:67:    "",
+> C:\Projects\aquamind\backend\app\api\tanks.py:68:    response_model=list[TankResponse],
+  C:\Projects\aquamind\backend\app\api\tanks.py:69:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:70:async def list_tanks(
+  C:\Projects\aquamind\backend\app\api\tanks.py:71:    system_id: UUID | None = None,
+  C:\Projects\aquamind\backend\app\api\tanks.py:72:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:73:        get_db_session
+  C:\Projects\aquamind\backend\app\api\tanks.py:74:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:75:):
+  C:\Projects\aquamind\backend\app\api\tanks.py:76:    query = (
+  C:\Projects\aquamind\backend\app\api\tanks.py:77:        select(Tank)
+  C:\Projects\aquamind\backend\app\api\tanks.py:78:        .where(
+  C:\Projects\aquamind\backend\app\api\tanks.py:79:            Tank.deleted_at.is_(None)
+  C:\Projects\aquamind\backend\app\api\tanks.py:80:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:81:        .order_by(
+  C:\Projects\aquamind\backend\app\api\tanks.py:82:            Tank.name
+  C:\Projects\aquamind\backend\app\api\tanks.py:83:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:84:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:85:
+  C:\Projects\aquamind\backend\app\api\tanks.py:86:    if system_id is not None:
+  C:\Projects\aquamind\backend\app\api\tanks.py:87:        query = query.where(
+  C:\Projects\aquamind\backend\app\api\tanks.py:88:            Tank.system_id
+  C:\Projects\aquamind\backend\app\api\tanks.py:89:            == system_id
+  C:\Projects\aquamind\backend\app\api\tanks.py:90:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:91:
+  C:\Projects\aquamind\backend\app\api\tanks.py:92:    result = await session.execute(
+  C:\Projects\aquamind\backend\app\api\tanks.py:93:        query
+  C:\Projects\aquamind\backend\app\api\tanks.py:94:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:95:
+  C:\Projects\aquamind\backend\app\api\tanks.py:96:    return result.scalars().all()
+  C:\Projects\aquamind\backend\app\api\tanks.py:97:
+  C:\Projects\aquamind\backend\app\api\tanks.py:98:
+  C:\Projects\aquamind\backend\app\api\tanks.py:99:@router.get(
+  C:\Projects\aquamind\backend\app\api\tanks.py:100:    "/{tank_id}",
+> C:\Projects\aquamind\backend\app\api\tanks.py:101:    response_model=TankResponse,
+  C:\Projects\aquamind\backend\app\api\tanks.py:102:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:103:async def get_tank(
+  C:\Projects\aquamind\backend\app\api\tanks.py:104:    tank_id: UUID,
+  C:\Projects\aquamind\backend\app\api\tanks.py:105:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:106:        get_db_session
+  C:\Projects\aquamind\backend\app\api\tanks.py:107:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:108:):
+  C:\Projects\aquamind\backend\app\api\tanks.py:109:    tank = await session.get(
+  C:\Projects\aquamind\backend\app\api\tanks.py:110:        Tank,
+  C:\Projects\aquamind\backend\app\api\tanks.py:111:        tank_id,
+  C:\Projects\aquamind\backend\app\api\tanks.py:112:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:113:
+  C:\Projects\aquamind\backend\app\api\tanks.py:114:    if (
+  C:\Projects\aquamind\backend\app\api\tanks.py:115:        tank is None
+  C:\Projects\aquamind\backend\app\api\tanks.py:116:        or tank.deleted_at is not None
+  C:\Projects\aquamind\backend\app\api\tanks.py:117:    ):
+  C:\Projects\aquamind\backend\app\api\tanks.py:118:        raise HTTPException(
+  C:\Projects\aquamind\backend\app\api\tanks.py:119:            status_code=status.HTTP_404_NOT_FOUND,
+  C:\Projects\aquamind\backend\app\api\tanks.py:120:            detail="Tank not found",
+  C:\Projects\aquamind\backend\app\api\tanks.py:121:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:122:
+  C:\Projects\aquamind\backend\app\api\tanks.py:123:    return tank
+  C:\Projects\aquamind\backend\app\api\tanks.py:124:
+  C:\Projects\aquamind\backend\app\api\tanks.py:125:
+  C:\Projects\aquamind\backend\app\api\tanks.py:126:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:127:# CREATE
+  C:\Projects\aquamind\backend\app\api\tanks.py:128:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:129:
+  C:\Projects\aquamind\backend\app\api\tanks.py:130:
+  C:\Projects\aquamind\backend\app\api\tanks.py:131:@router.post(
+  C:\Projects\aquamind\backend\app\api\tanks.py:132:    "",
+> C:\Projects\aquamind\backend\app\api\tanks.py:133:    response_model=TankResponse,
+  C:\Projects\aquamind\backend\app\api\tanks.py:134:    status_code=status.HTTP_201_CREATED,
+  C:\Projects\aquamind\backend\app\api\tanks.py:135:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:136:async def create_tank(
+> C:\Projects\aquamind\backend\app\api\tanks.py:137:    payload: TankCreate,
+  C:\Projects\aquamind\backend\app\api\tanks.py:138:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:139:        get_db_session
+  C:\Projects\aquamind\backend\app\api\tanks.py:140:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:141:    current_user: User = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:142:        require_admin
+  C:\Projects\aquamind\backend\app\api\tanks.py:143:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:144:):
+  C:\Projects\aquamind\backend\app\api\tanks.py:145:    system = await session.get(
+  C:\Projects\aquamind\backend\app\api\tanks.py:146:        AquaponicsSystem,
+  C:\Projects\aquamind\backend\app\api\tanks.py:147:        payload.system_id,
+  C:\Projects\aquamind\backend\app\api\tanks.py:148:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:149:
+  C:\Projects\aquamind\backend\app\api\tanks.py:150:    if (
+  C:\Projects\aquamind\backend\app\api\tanks.py:151:        system is None
+  C:\Projects\aquamind\backend\app\api\tanks.py:152:        or system.deleted_at is not None
+  C:\Projects\aquamind\backend\app\api\tanks.py:153:    ):
+  C:\Projects\aquamind\backend\app\api\tanks.py:154:        raise HTTPException(
+  C:\Projects\aquamind\backend\app\api\tanks.py:155:            status_code=status.HTTP_404_NOT_FOUND,
+  C:\Projects\aquamind\backend\app\api\tanks.py:156:            detail="Aquaponics system not found",
+  C:\Projects\aquamind\backend\app\api\tanks.py:157:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:158:
+  C:\Projects\aquamind\backend\app\api\tanks.py:159:    tank = Tank(
+  C:\Projects\aquamind\backend\app\api\tanks.py:160:        system_id=payload.system_id,
+  C:\Projects\aquamind\backend\app\api\tanks.py:161:        name=payload.name,
+  C:\Projects\aquamind\backend\app\api\tanks.py:162:        capacity_liters=payload.capacity_liters,
+  C:\Projects\aquamind\backend\app\api\tanks.py:163:        species=payload.species,
+  C:\Projects\aquamind\backend\app\api\tanks.py:164:        is_active=payload.is_active,
+  C:\Projects\aquamind\backend\app\api\tanks.py:165:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:166:
+  C:\Projects\aquamind\backend\app\api\tanks.py:167:    session.add(tank)
+  C:\Projects\aquamind\backend\app\api\tanks.py:168:
+  C:\Projects\aquamind\backend\app\api\tanks.py:169:    await session.commit()
+  C:\Projects\aquamind\backend\app\api\tanks.py:170:    await session.refresh(tank)
+  C:\Projects\aquamind\backend\app\api\tanks.py:171:
+  C:\Projects\aquamind\backend\app\api\tanks.py:172:    await create_audit_log(
+  C:\Projects\aquamind\backend\app\api\tanks.py:202:# ============================================================
+  C:\Projects\aquamind\backend\app\api\tanks.py:203:
+  C:\Projects\aquamind\backend\app\api\tanks.py:204:
+  C:\Projects\aquamind\backend\app\api\tanks.py:205:@router.patch(
+  C:\Projects\aquamind\backend\app\api\tanks.py:206:    "/{tank_id}",
+> C:\Projects\aquamind\backend\app\api\tanks.py:207:    response_model=TankResponse,
+  C:\Projects\aquamind\backend\app\api\tanks.py:208:)
+  C:\Projects\aquamind\backend\app\api\tanks.py:209:async def update_tank(
+  C:\Projects\aquamind\backend\app\api\tanks.py:210:    tank_id: UUID,
+> C:\Projects\aquamind\backend\app\api\tanks.py:211:    payload: TankUpdate,
+  C:\Projects\aquamind\backend\app\api\tanks.py:212:    session: AsyncSession = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:213:        get_db_session
+  C:\Projects\aquamind\backend\app\api\tanks.py:214:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:215:    current_user: User = Depends(
+  C:\Projects\aquamind\backend\app\api\tanks.py:216:        require_admin
+  C:\Projects\aquamind\backend\app\api\tanks.py:217:    ),
+  C:\Projects\aquamind\backend\app\api\tanks.py:218:):
+  C:\Projects\aquamind\backend\app\api\tanks.py:219:    tank = await session.get(
+  C:\Projects\aquamind\backend\app\api\tanks.py:220:        Tank,
+  C:\Projects\aquamind\backend\app\api\tanks.py:221:        tank_id,
+  C:\Projects\aquamind\backend\app\api\tanks.py:222:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:223:
+  C:\Projects\aquamind\backend\app\api\tanks.py:224:    if (
+  C:\Projects\aquamind\backend\app\api\tanks.py:225:        tank is None
+  C:\Projects\aquamind\backend\app\api\tanks.py:226:        or tank.deleted_at is not None
+  C:\Projects\aquamind\backend\app\api\tanks.py:227:    ):
+  C:\Projects\aquamind\backend\app\api\tanks.py:228:        raise HTTPException(
+  C:\Projects\aquamind\backend\app\api\tanks.py:229:            status_code=status.HTTP_404_NOT_FOUND,
+  C:\Projects\aquamind\backend\app\api\tanks.py:230:            detail="Tank not found",
+  C:\Projects\aquamind\backend\app\api\tanks.py:231:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:232:
+  C:\Projects\aquamind\backend\app\api\tanks.py:233:    updates = payload.model_dump(
+  C:\Projects\aquamind\backend\app\api\tanks.py:234:        exclude_unset=True
+  C:\Projects\aquamind\backend\app\api\tanks.py:235:    )
+  C:\Projects\aquamind\backend\app\api\tanks.py:236:
+  C:\Projects\aquamind\backend\app\api\tanks.py:237:    old_value = {
+  C:\Projects\aquamind\backend\app\api\tanks.py:238:        field: _audit_value(
+  C:\Projects\aquamind\backend\app\api\tanks.py:239:            getattr(
+  C:\Projects\aquamind\backend\app\api\tanks.py:240:                tank,
+  C:\Projects\aquamind\backend\app\api\tanks.py:241:                field,
+  C:\Projects\aquamind\backend\app\api\tanks.py:242:            )
+  C:\Projects\aquamind\backend\app\api\tanks.py:243:        )
+  C:\Projects\aquamind\backend\app\api\tanks.py:244:        for field in updates
+  C:\Projects\aquamind\backend\app\api\tanks.py:245:    }
+  C:\Projects\aquamind\backend\app\api\tanks.py:246:
+
+===== BACKEND TANK SCHEMAS =====
+> C:\Projects\aquamind\backend\app\schemas\tank.py:9:class TankCreate(BaseModel):
+  C:\Projects\aquamind\backend\app\schemas\tank.py:10:    system_id: UUID
+  C:\Projects\aquamind\backend\app\schemas\tank.py:11:    name: str = Field(min_length=1, max_length=100)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:12:    capacity_liters: float = Field(gt=0)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:13:    species: str | None = Field(default=None, max_length=150)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:14:    is_active: bool = True
+  C:\Projects\aquamind\backend\app\schemas\tank.py:15:
+  C:\Projects\aquamind\backend\app\schemas\tank.py:16:
+> C:\Projects\aquamind\backend\app\schemas\tank.py:17:class TankUpdate(BaseModel):
+  C:\Projects\aquamind\backend\app\schemas\tank.py:18:    name: str | None = Field(default=None, min_length=1, max_length=100)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:19:    capacity_liters: float | None = Field(default=None, gt=0)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:20:    species: str | None = Field(default=None, max_length=150)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:21:    is_active: bool | None = None
+  C:\Projects\aquamind\backend\app\schemas\tank.py:22:
+  C:\Projects\aquamind\backend\app\schemas\tank.py:23:
+> C:\Projects\aquamind\backend\app\schemas\tank.py:24:class TankResponse(BaseModel):
+  C:\Projects\aquamind\backend\app\schemas\tank.py:25:    model_config = ConfigDict(from_attributes=True)
+  C:\Projects\aquamind\backend\app\schemas\tank.py:26:
+  C:\Projects\aquamind\backend\app\schemas\tank.py:27:    id: UUID
+  C:\Projects\aquamind\backend\app\schemas\tank.py:28:    system_id: UUID
+  C:\Projects\aquamind\backend\app\schemas\tank.py:29:    name: str
+  C:\Projects\aquamind\backend\app\schemas\tank.py:30:    capacity_liters: float
+  C:\Projects\aquamind\backend\app\schemas\tank.py:31:    species: str | None
+  C:\Projects\aquamind\backend\app\schemas\tank.py:32:    is_active: bool
+  C:\Projects\aquamind\backend\app\schemas\tank.py:33:    created_at: datetime
+  C:\Projects\aquamind\backend\app\schemas\tank.py:34:    updated_at: datetime
