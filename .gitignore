@@ -1,0 +1,45 @@
+# AquaMind: local credentials and environment overrides (never commit)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+**/credentials.json
+**/service-account*.json
+
+# Python caches, local environments and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Local data, logs, IDE and OS artifacts
+*.sqlite
+*.sqlite3
+*.db
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
