@@ -588,15 +588,16 @@ print(
 )
 
 
-if url.drivername != "postgresql+asyncpg":
+# Both drivers are compatible with AquaMind's SQLAlchemy AsyncEngine.
+if url.drivername not in {"postgresql+asyncpg", "postgresql+psycopg"}:
     raise SystemExit(
-        "AquaMind deployment expects the "
-        "postgresql+asyncpg driver."
+        "AquaMind deployment expects either the "
+        "postgresql+asyncpg or postgresql+psycopg driver."
     )
 PY
     then
         pass \
-            "Database configuration uses postgresql+asyncpg."
+            "Database configuration uses a supported async PostgreSQL driver."
     else
         fail \
             "Database configuration is invalid."
