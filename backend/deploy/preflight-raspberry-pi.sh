@@ -158,16 +158,7 @@ read_env_value() {
     )"
 
     # Remove one pair of matching surrounding quotes.
-    if (
-        [[ "${value}" == \"*\" ]]
-        && [[ "${value}" == *\" ]]
-    ); then
-        value="${value:1:${#value}-2}"
-
-    elif (
-        [[ "${value}" == \'*\' ]]
-        && [[ "${value}" == *\' ]]
-    ); then
+    if [[ "${value}" == \"*\" || "${value}" == \'*\' ]]; then
         value="${value:1:${#value}-2}"
     fi
 
