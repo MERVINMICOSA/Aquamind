@@ -5,8 +5,13 @@ from fastapi.routing import APIRoute
 from app.api.dependencies import (
     get_current_user,
 )
+from app.api.esp32_telemetry import require_esp32_device
 from app.main import app
 
+
+DEVICE_TOKEN_API_ROUTES = {
+    ("POST", "/api/v1/esp32/telemetry"),
+}
 
 PUBLIC_API_ROUTES = {
     (
@@ -145,6 +150,13 @@ def test_all_non_public_api_routes_require_authentication():
             route_key
             in PUBLIC_API_ROUTES
         ):
+            continue
+
+        if route_key in DEVICE_TOKEN_API_ROUTES:
+            assert require_esp32_device in dependencies, (
+                f"{method} {path} is missing device-token authentication"
+            )
+            checked_routes += 1
             continue
 
         assert (

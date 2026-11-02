@@ -73,6 +73,11 @@ def _env_bool(
 
 
 class Settings:
+    # ESP32 credentials live only in deployment environment (never Git).
+    ESP32_INGEST_TOKEN: str = os.getenv("ESP32_INGEST_TOKEN", "")
+    ESP32_DEVICE_ID: str = os.getenv("ESP32_DEVICE_ID", "")
+    ESP32_SYSTEM_ID: str = os.getenv("ESP32_SYSTEM_ID", "")
+
     # ========================================================
     # DATABASE
     # ========================================================

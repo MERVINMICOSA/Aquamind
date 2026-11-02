@@ -13,7 +13,7 @@ AquaMind is a thesis prototype for a **Smart Aquaponics Monitoring and Automatio
 ## 🏗️ Architecture Rules
 
 ### Core Principles
-1. **Raspberry Pi 5 is the physical controller** — All hardware interaction happens here
+1. **Raspberry Pi 5 is the actuator controller** — GPIO and safety-critical outputs remain on the Pi; ESP32 sensor-only nodes may POST authenticated telemetry
 2. **Backend is the controlled bridge** — Web app → Backend → Hardware Abstraction Layer → Hardware
 3. **Frontend NEVER accesses GPIO directly** — All hardware commands go through backend API
 4. **Hardware Abstraction Layer (HAL) is mandatory** — Sensors/actuators are replaceable without rewriting application logic
@@ -185,7 +185,7 @@ tests/
 
 | Rule | Description |
 |------|-------------|
-| **No ESP32** | Raspberry Pi 5 only — never reintroduce ESP32 |
+| **ESP32 sensor input only** | ESP32 devices may POST authenticated sensor telemetry to the Pi backend; actuator execution and safety interlocks remain Pi-owned. Uncalibrated estimates never trigger automations. |
 | **No Misting** | Misting system was removed — never add it back |
 | **No AI Actuator Control** | AI/analytics = recommendations only |
 | **No Direct GPIO** | Frontend never touches hardware |
