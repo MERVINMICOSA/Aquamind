@@ -23,6 +23,8 @@ import type {
   TelemetryTimeliness,
 } from '../utils/telemetryTimeliness'
 
+import { Esp32TelemetryPanel } from '../components/dashboard/Esp32TelemetryPanel'
+
 import {
   PlantHero,
 } from '../components/dashboard/PlantHero'
@@ -406,6 +408,8 @@ export function DashboardPage() {
             </div>
           </section>
 
+
+          <Esp32TelemetryPanel systemId={dashboard.selectedSystem.id} />
 
           {/* =================================================
               OVERVIEW LOADING
