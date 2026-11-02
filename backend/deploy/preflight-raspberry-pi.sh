@@ -528,10 +528,7 @@ if [[ -f "${HARDWARE_ENV}" ]]; then
     fi
 
 
-    if (
-        [[ -z "${RELAY_CHANNELS_VALUE}" ]]
-        || [[ "${RELAY_CHANNELS_VALUE}" == "[]" ]]
-    ); then
+    if [[ -z "${RELAY_CHANNELS_VALUE}" || "${RELAY_CHANNELS_VALUE}" == "[]" ]]; then
         pass \
             "No relay channel mapping has been prematurely assigned."
     else
