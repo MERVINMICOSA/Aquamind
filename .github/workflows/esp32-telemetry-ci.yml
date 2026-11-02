@@ -25,6 +25,8 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         run: python -m pip install -r backend/requirements.txt
+      - name: Validate Raspberry Pi preflight Bash syntax
+        run: bash -n backend/deploy/preflight-raspberry-pi.sh
       - name: Run backend regression suite
         working-directory: backend
         env:

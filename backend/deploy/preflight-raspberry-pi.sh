@@ -158,16 +158,7 @@ read_env_value() {
     )"
 
     # Remove one pair of matching surrounding quotes.
-    if (
-        [[ "${value}" == \"*\" ]]
-        && [[ "${value}" == *\" ]]
-    ); then
-        value="${value:1:${#value}-2}"
-
-    elif (
-        [[ "${value}" == \'*\' ]]
-        && [[ "${value}" == *\' ]]
-    ); then
+    if [[ "${value}" == \"*\" || "${value}" == \'*\' ]]; then
         value="${value:1:${#value}-2}"
     fi
 
@@ -537,10 +528,7 @@ if [[ -f "${HARDWARE_ENV}" ]]; then
     fi
 
 
-    if (
-        [[ -z "${RELAY_CHANNELS_VALUE}" ]]
-        || [[ "${RELAY_CHANNELS_VALUE}" == "[]" ]]
-    ); then
+    if [[ -z "${RELAY_CHANNELS_VALUE}" || "${RELAY_CHANNELS_VALUE}" == "[]" ]]; then
         pass \
             "No relay channel mapping has been prematurely assigned."
     else
