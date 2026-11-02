@@ -27,6 +27,12 @@ import {
 } from './DashboardPage'
 
 
+// Keep the separately tested ESP32 polling widget out of dashboard unit tests.
+vi.mock('../components/dashboard/Esp32TelemetryPanel', () => ({
+  Esp32TelemetryPanel: () => null,
+}))
+
+
 vi.mock(
   '../hooks/useDashboardOverview',
   () => ({

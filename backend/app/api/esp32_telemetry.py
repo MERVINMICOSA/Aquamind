@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from hmac import compare_digest
 from uuid import UUID
 
@@ -61,7 +62,7 @@ async def ingest_esp32_telemetry(
     """
     system_id = _ingest_configuration()
     if device_token is None or not compare_digest(
-        device_token, settings.ESP32_INGEST_TOKEN,
+        device_token.encode("utf-8"), settings.ESP32_INGEST_TOKEN.encode("utf-8"),
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -100,6 +101,7 @@ async def ingest_esp32_telemetry(
         return existing
 
     row = Esp32Telemetry(
+        received_at=datetime.now(timezone.utc),
         system_id=system_id,
         device_id=payload.device_id,
         sequence=payload.sequence,
