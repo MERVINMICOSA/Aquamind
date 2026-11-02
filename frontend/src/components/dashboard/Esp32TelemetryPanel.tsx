@@ -40,9 +40,7 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
   useEffect(() => {
     let active = true
     let busy = false
-    setPackets([])
-    setStatus('loading')
-
+    // Parent keys this widget by systemId; remounting resets its state.
     const refresh = async () => {
       if (busy) return
       busy = true

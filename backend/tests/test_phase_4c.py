@@ -38,6 +38,7 @@ EXPECTED_TABLES = {
     "automation_runs",
     "feeder_calibrations",
     "sensor_calibrations",
+    "esp32_telemetry",  # Schema-v1 packet archive, separate from sensor_readings.
 }
 
 

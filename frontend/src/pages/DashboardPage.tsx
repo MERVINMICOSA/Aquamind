@@ -409,7 +409,7 @@ export function DashboardPage() {
           </section>
 
 
-          <Esp32TelemetryPanel systemId={dashboard.selectedSystem.id} />
+          <Esp32TelemetryPanel key={dashboard.selectedSystem.id} systemId={dashboard.selectedSystem.id} />
 
           {/* =================================================
               OVERVIEW LOADING

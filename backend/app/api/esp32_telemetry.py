@@ -39,6 +39,21 @@ def _ingest_configuration() -> UUID:
         ) from exc
 
 
+def require_esp32_device(
+    device_token: str | None = Header(default=None, alias="X-ESP32-Token"),
+) -> UUID:
+    """Authenticates device ingestion independently of admin JWT sessions."""
+    system_id = _ingest_configuration()
+    if device_token is None or not compare_digest(
+        device_token.encode("utf-8"), settings.ESP32_INGEST_TOKEN.encode("utf-8"),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid device token",
+        )
+    return system_id
+
+
 def _same_packet(row: Esp32Telemetry, packet: dict) -> bool:
     return row.packet == packet
 
@@ -51,7 +66,7 @@ def _same_packet(row: Esp32Telemetry, packet: dict) -> bool:
 async def ingest_esp32_telemetry(
     payload: Esp32SensorPacket,
     response: Response,
-    device_token: str | None = Header(default=None, alias="X-ESP32-Token"),
+    system_id: UUID = Depends(require_esp32_device),
     session: AsyncSession = Depends(get_db_session),
 ) -> Esp32Telemetry:
     """Persist an entire v1 packet. This path cannot command any actuators.
@@ -60,14 +75,6 @@ async def ingest_esp32_telemetry(
     Calibration guesses are stored as telemetry ONLY, never as validated
     sensor_readings that could trigger alert/automation pathways.
     """
-    system_id = _ingest_configuration()
-    if device_token is None or not compare_digest(
-        device_token.encode("utf-8"), settings.ESP32_INGEST_TOKEN.encode("utf-8"),
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid device token",
-        )
     if payload.device_id != settings.ESP32_DEVICE_ID:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
