@@ -162,7 +162,7 @@ aquamind/
 - **[SYSTEM_BLUEPRINT.md](SYSTEM_BLUEPRINT.md)** — Complete architecture specification
 - **[CLAUDE.md](CLAUDE.md)** — Development guidelines for AI-assisted development
 - **[.env.example](.env.example)** — Configuration template
-- **[ESP32 telemetry](docs/ESP32_TELEMETRY.md)** — Secure ESP32 packet ingestion, saved history, and dashboard integration
+- **[ESP32 USB telemetry](docs/ESP32_TELEMETRY.md)** — Read JSON over USB serial on Raspberry Pi, save packet history and display it in the dashboard
 
 ---
 

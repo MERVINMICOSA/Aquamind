@@ -8,7 +8,7 @@
 
 ### Architecture addendum — 2026-11-03
 
-The Raspberry Pi 5 remains AquaMind's only actuator execution controller. Following the user's updated requirement, a **sensor-only ESP32 DevKit** may transmit authenticated versioned `aquamind_sensor` JSON packets to the Raspberry Pi FastAPI backend. Raw packets and calibration flags are preserved in a separate history table, and the dashboard shows the latest packet and recent history. ESP32 sensor telemetry does not authorize or imply direct relay/pump control. Unverified pH/TDS estimates must not be promoted to the canonical `sensor_readings` path or affect water-quality automation. See `docs/ESP32_TELEMETRY.md` for the request format, security boundary, and setup.
+The Raspberry Pi 5 remains AquaMind's only actuator execution controller. Following the user's updated requirement, a **sensor-only ESP32 DevKit** may transmit versioned `aquamind_sensor` JSON packets over a physical USB serial connection to the Raspberry Pi FastAPI backend. Raw packets and calibration flags are preserved in a separate history table, and the dashboard shows the latest packet and recent history. ESP32 sensor telemetry does not authorize or imply direct relay/pump control. Unverified pH/TDS estimates must not be promoted to the canonical `sensor_readings` path or affect water-quality automation. See `docs/ESP32_TELEMETRY.md` for the request format, security boundary, and setup.
 
 ---
 

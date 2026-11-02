@@ -73,8 +73,10 @@ def _env_bool(
 
 
 class Settings:
-    # ESP32 credentials live only in deployment environment (never Git).
-    ESP32_INGEST_TOKEN: str = os.getenv("ESP32_INGEST_TOKEN", "")
+    # Optional local USB serial telemetry reader. No network token required.
+    ESP32_SERIAL_ENABLED: bool = _env_bool("ESP32_SERIAL_ENABLED", default=False)
+    ESP32_SERIAL_PORT: str = os.getenv("ESP32_SERIAL_PORT", "")
+    ESP32_SERIAL_BAUDRATE: int = int(os.getenv("ESP32_SERIAL_BAUDRATE", "115200"))
     ESP32_DEVICE_ID: str = os.getenv("ESP32_DEVICE_ID", "")
     ESP32_SYSTEM_ID: str = os.getenv("ESP32_SYSTEM_ID", "")
 
