@@ -22,6 +22,8 @@ from app.hardware.runtime import (
 from app.hardware.sensor_runtime import (
     build_hardware_sensor_runtime,
 )
+from app.services.esp32_serial_service import Esp32SerialWorker
+from uuid import UUID
 
 from app.api.esp32_telemetry import router as esp32_telemetry_router
 
@@ -133,9 +135,11 @@ async def lifespan(
 
     app.state.actuator_executor = None
     app.state.hardware_sensor_runtime = None
+    app.state.esp32_serial_worker = None
 
     executor = None
     sensor_runtime = None
+    esp32_serial_worker = None
 
     try:
         # ====================================================
@@ -195,12 +199,37 @@ async def lifespan(
             )
 
         # ====================================================
+        # USB ESP32 SENSOR TELEMETRY (read-only, no GPIO control)
+        # ====================================================
+        # It is independent of HARDWARE_ENABLED and does not
+        # give ESP32 packets access to the actuator executor.
+        if settings.ESP32_SERIAL_ENABLED:
+            if not settings.ESP32_SYSTEM_ID:
+                raise ValueError("ESP32_SYSTEM_ID must be set for USB ingestion")
+            esp32_serial_worker = Esp32SerialWorker(
+                session_factory=SessionFactory,
+                system_id=UUID(settings.ESP32_SYSTEM_ID),
+                device_id=settings.ESP32_DEVICE_ID,
+                port=settings.ESP32_SERIAL_PORT,
+                baudrate=settings.ESP32_SERIAL_BAUDRATE,
+            )
+            await esp32_serial_worker.start()
+            app.state.esp32_serial_worker = esp32_serial_worker
+
+        # ====================================================
         # APPLICATION RUNNING
         # ====================================================
 
         yield
 
     finally:
+        # Stop USB ingestion before stopping other hardware.
+        try:
+            if esp32_serial_worker is not None:
+                await esp32_serial_worker.stop()
+        finally:
+            app.state.esp32_serial_worker = None
+
         # ====================================================
         # SENSOR SHUTDOWN FIRST
         #
@@ -290,6 +319,7 @@ app.state.actuator_executor = None
 # The background sensor worker is created only while hardware
 # is explicitly enabled.
 app.state.hardware_sensor_runtime = None
+app.state.esp32_serial_worker = None
 
 
 # ============================================================
@@ -473,7 +503,7 @@ app.include_router(
 )
 
 
-# ESP32 POST uses its own device token; GET routes require admin login.
+# USB serial ingestion is local; telemetry GET endpoints require login.
 app.include_router(esp32_telemetry_router, prefix="/api/v1")
 
 

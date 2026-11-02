@@ -1,94 +1,169 @@
-# ESP32 packet ingestion (AquaMind schema v1)
+# ESP32 over USB serial → Raspberry Pi 5 → AquaMind
 
-This feature accepts the **existing** ESP32 JSON body unchanged, stores it as a complete historical packet in PostgreSQL, and displays it in the signed-in AquaMind dashboard. It does **not** alter the existing individual sensor read/write APIs, sensor-based automations, or the Raspberry Pi hardware execution switch.
+**AquaMind now receives ESP32 JSON through the Pi's USB port, not HTTP.**
+The old device-token HTTP POST has been removed. The dashboard still reads
+persisted records through authenticated API GET requests.
 
-## Database migration
+## Physical connection
 
-On the Raspberry Pi, with the AquaMind Python virtual environment activated and PostgreSQL configured, from the backend directory:
+```text
+ESP32 DevKit -- USB data cable --> Raspberry Pi 5
+                                      |
+                              pyserial serial reader
+                                      |
+                              FastAPI application worker
+                                      |
+                            PostgreSQL esp32_telemetry
+                                      |
+                             AquaMind web dashboard
+```
 
-~~~sh
+The ESP32 does **not** need Wi-Fi, an API key, or its own login.
+Use a USB cable supporting data, not a charge-only cable. Plug the
+ESP32 into the **Raspberry Pi**, not the computer you use to browse the dashboard.
+
+## ESP32 firmware output
+
+Print one complete schema-v1 JSON object through `Serial` at **115200 baud**.
+Either compact newline-delimited JSON or pretty-printed multiline JSON is
+supported. Serial boot/debug text outside JSON objects is ignored.
+
+ArduinoJson sketch fragment (integrate with existing sensor code):
+
+```cpp
+#include <ArduinoJson.h>
+
+void setup() {
+  Serial.begin(115200);
+  // Initialize sensors as in your existing firmware.
+}
+
+void publishSensorData(JsonDocument& doc) {
+  // Fill doc with your existing v1 aquamind_sensor fields.
+  // Preserve JSON null for uncalibrated/absent measurements.
+  serializeJson(doc, Serial);
+  Serial.println();  // Packet boundary; no HTTP or Wi-Fi call.
+}
+```
+
+For ESP32 firmware that already prints the JSON packet to the USB Serial
+Monitor, a code change may not be required; confirm the baud rate and that
+only complete JSON objects are sent. An ESP32 console attached to another
+computer must be closed so the Pi can own the device. Opening USB serial may
+reset some ESP32 boards; the worker reconnects automatically if unplugged.
+
+## Find your Linux serial port
+
+With the ESP32 attached to Raspberry Pi:
+
+```bash
+ls -l /dev/serial/by-id/
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+Prefer the **stable** `/dev/serial/by-id/usb-...` path, when available, rather
+than assuming `/dev/ttyUSB0` or `/dev/ttyACM0`. The name and enumeration
+depend on the USB-UART chip/board.
+
+Check permissions under your AquaMind service user:
+
+```bash
+groups
+ls -l /dev/ttyUSB0  # change this to the actual device
+```
+
+On Raspberry Pi OS, USB serial permissions typically belong to the
+`dialout` group. If needed, use `sudo usermod -aG dialout mervin` (replace
+`mervin` with your AquaMind service user), then log out/in and restart the
+service. **Do not use `chmod 777` or run the entire API as root.**
+
+## Configure the Raspberry Pi backend
+
+Run database migration **once** with the Pi's PostgreSQL connection:
+
+```bash
+cd ~/aquamind/backend
+source .venv/bin/activate
+python -m pip install -r requirements-pi.txt
 alembic upgrade head
-~~~
+```
 
-The migration creates the esp32_telemetry table with the original JSON packet, server timestamp, configured system association, and a unique identity across (system, device_id, sequence, uptime_ms). Existing migrations remain intact.
+Configure these variables in a **private** `~/aquamind/backend/.env` file
+(or the systemd unit's private environment file), not in Git:
 
-## Private server configuration
-
-Set these variables in the Raspberry Pi backend's **private runtime environment**, not on GitHub:
-
-~~~dotenv
-ESP32_INGEST_TOKEN=GENERATE_A_UNIQUE_RANDOM_TOKEN_OF_AT_LEAST_32_CHARACTERS
+```dotenv
+ESP32_SERIAL_ENABLED=true
+ESP32_SERIAL_PORT=/dev/ttyUSB0
+ESP32_SERIAL_BAUDRATE=115200
 ESP32_DEVICE_ID=esp32-devkit-01
 ESP32_SYSTEM_ID=YOUR_EXISTING_AQUAPONICS_SYSTEM_UUID
-~~~
+```
 
-Generate a token using:
+Replace the port with your actual device path. Copy your existing system UUID
+from the AquaMind system record (GET `/api/v1/systems` after login).
+AquaMind will not create or select a system implicitly, preventing data
+from being assigned to the wrong tank.
 
-~~~sh
-python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
-~~~
+Restart the running AquaMind backend (for a systemd installation,
+`sudo systemctl restart aquamind`). Run only **one** API worker process
+that owns the serial port. Do not use auto-reload or multiple Uvicorn workers
+on a live serial deployment. Ensure that the backend is running from the
+directory where its `.env` can be loaded, or configure systemd environment
+variables explicitly.
 
-Find the system UUID from the protected GET /api/v1/systems API after logging into AquaMind. Configuration is required: the endpoint fails closed with HTTP 503 rather than accepting anonymous telemetry. Restart the backend after setting environment variables; the values are read at startup. Use a different secret from JWT or admin credentials.
+`ESP32_SERIAL_ENABLED=false` is the default and does not open hardware.
+USB sensor ingestion remains independent of `HARDWARE_ENABLED`: you do not
+have to enable actuator GPIO access.
 
-The application does not create a new system automatically and does not need HARDWARE_ENABLED=true: ESP32 transmissions work when Raspberry Pi GPIO hardware execution is disabled. Never put the ingestion token in frontend VITE_* variables.
+## Data acceptance and persistence
 
-## ESP32 HTTP request
+The USB reader checks `type=aquamind_sensor`, `schema_version=1`,
+the configured `device_id`, field ranges, finite numeric values, and pH/TDS
+calibration consistency. It stores the **complete packet** in the existing
+`esp32_telemetry` database table with a Pi-side receive timestamp. Missing
+ultrasonic readings remain JSON `null`, not 0. The reader supports fragmented,
+compact, and multiline JSON frames, bounds packet size, and retries after
+temporary disconnect.
 
-- Method: POST
-- URL: https://YOUR-PI-OR-REVERSE-PROXY/api/v1/esp32/telemetry
-- Header: Content-Type: application/json
-- Header: X-ESP32-Token: <the private ESP32 token>
-- Body: the exact v1 aquamind_sensor object, including nullable values
+Exact retransmissions are deduplicated by
+(system UUID, device ID, sequence, uptime_ms); conflicts are rejected.
+With v1's lack of a boot/session identifier, some packets after an ESP32
+reboot can collide if sequence and uptime repeat. A future firmware version
+should include a boot/session ID.
 
-Example body:
+**Important:** `ph_unverified_estimate=17.45` is not a valid calibrated
+pH value. The estimate and raw pH/TDS voltages are displayed as diagnostics;
+`ph`/`tds_ppm` must remain `null` until calibrated. ESP32 telemetry
+does **not** populate canonical sensor readings or trigger pump automation.
 
-~~~json
-{
-  "type": "aquamind_sensor",
-  "schema_version": 1,
-  "device_id": "esp32-devkit-01",
-  "sequence": 5,
-  "uptime_ms": 15023,
-  "water_temp_c": 27.56,
-  "ph_voltage_v": 0.559,
-  "ph_unverified_estimate": 17.45,
-  "ph_calibrated": false,
-  "ph": null,
-  "tds_voltage_v": 2.435,
-  "tds_unverified_ppm": 1249,
-  "tds_calibrated": false,
-  "tds_ppm": null,
-  "distance_cm": null,
-  "water_height_cm": null,
-  "water_level_pct": null,
-  "air_temp_c": 27.67,
-  "humidity_pct": 84.60
-}
-~~~
+## Dashboard access and diagnostics
 
-Replies: 201 on new save, 200 on exact retry, 401 if token missing/wrong, 403 for wrong device_id, 422 for invalid schema or measurement, 409 if the same packet identity arrives with different content. A genuinely new packet needs a new sequence and/or uptime combination. **With v1's lack of boot_id**, an unlikely same-identity collision after reboot can be rejected; a future firmware schema version should add a boot/session identifier.
+The signed-in dashboard displays the latest packet, eight measurement
+cards, unverified voltage diagnostics, and the last 10 records. It polls
+approximately every 10 seconds.
 
-**Security:** Use HTTPS where possible. If TLS is not available on the ESP32, keep the Raspberry Pi and device on an isolated trusted LAN/VLAN: plain HTTP exposes the device token to observers. Limit network access to the ingestion port. Do not log the request header or commit firmware containing a production token. Rotate on suspicion of exposure.
+Protected read-only API endpoints:
 
-## Dashboard and history
+- `GET /api/v1/esp32/telemetry/latest?system_id=UUID`
+- `GET /api/v1/esp32/telemetry?system_id=UUID&limit=10&offset=0`
 
-The signed-in AquaMind dashboard for the configured system shows the latest received ESP32 packet, a panel of measurements, unverified voltage/estimate diagnostics, and ten recent packet records, refreshing approximately every 10 seconds.
+The former public-device `POST /api/v1/esp32/telemetry` route is removed;
+POST requests return HTTP 405. The dashboard still requires normal
+AquaMind account authentication.
 
-- GET /api/v1/esp32/telemetry/latest?system_id=UUID -> latest packet or null
-- GET /api/v1/esp32/telemetry?system_id=UUID&limit=10&offset=0 -> bounded saved packet history
+Check receiver logs:
 
-Read endpoints require AquaMind admin authentication (JWT). All fields are saved, including null ultrasonic values; the dashboard says "No reading" rather than zero.
+```bash
+sudo journalctl -u aquamind -n 100 --no-pager
+```
 
-**Calibration safety:** The supplied 17.45 is **not a valid calibrated pH**. The unverified pH/TDS estimates are retained and labeled as diagnostic guesses, and when ph_calibrated/tds_calibrated are false their authoritative pH/TDS values must be null. These packets do not populate the canonical sensor_readings table or trigger alert/automation rules. Mapping genuinely calibrated physical measurements into canonical Sensor records is a separate, controlled integration task.
+If the device is not detected: verify data-capable USB cable, port, baud,
+service user group permissions, private env settings, and that no Serial
+Monitor or other process has opened the same port.
 
-## Verification
+## Tests
 
-~~~sh
+```bash
 cd backend
-pytest -q tests/test_esp32_telemetry_api.py
-cd ../frontend
-npm test -- --run src/components/dashboard/Esp32TelemetryPanel.test.tsx src/services/esp32TelemetryService.test.ts
-npm run build
-~~~
-
-The firmware itself must send a POST request to this endpoint; sending the JSON only to a serial monitor does not transmit it to AquaMind.
+python -m pytest -q tests/test_esp32_serial_service.py tests/test_esp32_telemetry_api.py
+```

@@ -185,7 +185,7 @@ tests/
 
 | Rule | Description |
 |------|-------------|
-| **ESP32 sensor input only** | ESP32 devices may POST authenticated sensor telemetry to the Pi backend; actuator execution and safety interlocks remain Pi-owned. Uncalibrated estimates never trigger automations. |
+| **ESP32 sensor input only** | ESP32 sensor nodes may send JSON over USB serial to the Pi backend; actuator execution and safety interlocks remain Pi-owned. Uncalibrated estimates never trigger automations. |
 | **No Misting** | Misting system was removed — never add it back |
 | **No AI Actuator Control** | AI/analytics = recommendations only |
 | **No Direct GPIO** | Frontend never touches hardware |
