@@ -135,3 +135,74 @@ async def test_missing_configured_parent_is_not_created_implicitly(
         packet=Esp32SensorPacket.model_validate(PACKET),
     )
     assert result == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_usb_worker_reads_packet_after_serial_reconnect(
+    client: AsyncClient, test_session_factory,
+):
+    import asyncio
+    import serial
+
+    system = await client.post(
+        "/api/v1/systems",
+        json={"name": "USB reconnect test", "timezone": "UTC", "is_active": True},
+    )
+    assert system.status_code == 201
+    system_id = UUID(system.json()["id"])
+
+    class FakeUsbPort:
+        def __init__(self):
+            self.chunks = [
+                b"ESP32 boot complete\\n",
+                json.dumps(PACKET, indent=2).encode("utf-8"),
+                b"\\n",
+            ]
+            self.closed = False
+
+        def read(self, _size):
+            return self.chunks.pop(0) if self.chunks else b""
+
+        def close(self):
+            self.closed = True
+
+    port = FakeUsbPort()
+    opens = []
+
+    def open_usb(path, baudrate, timeout):
+        assert path == "/dev/ttyACM0"
+        assert baudrate == 115200
+        assert timeout == 0.5
+        opens.append(path)
+        if len(opens) == 1:
+            raise serial.SerialException("temporarily disconnected")
+        return port
+
+    worker = Esp32SerialWorker(
+        test_session_factory,
+        system_id=system_id,
+        device_id=PACKET["device_id"],
+        port="/dev/ttyACM0",
+        serial_factory=open_usb,
+        reconnect_seconds=0.01,
+    )
+    await worker.start()
+    try:
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            async with test_session_factory() as session:
+                from sqlalchemy import select
+                from app.models.esp32_telemetry import Esp32Telemetry
+
+                records = (
+                    await session.execute(select(Esp32Telemetry))
+                ).scalars().all()
+            if records:
+                break
+        assert len(records) == 1
+        assert records[0].packet["water_temp_c"] == 27.56
+        assert len(opens) == 2
+    finally:
+        await worker.stop()
+
+    assert port.closed
