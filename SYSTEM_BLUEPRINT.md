@@ -6,6 +6,12 @@
 
 ---
 
+### Architecture addendum — 2026-11-03
+
+The Raspberry Pi 5 remains AquaMind's only actuator execution controller. Following the user's updated requirement, a **sensor-only ESP32 DevKit** may transmit authenticated versioned `aquamind_sensor` JSON packets to the Raspberry Pi FastAPI backend. Raw packets and calibration flags are preserved in a separate history table, and the dashboard shows the latest packet and recent history. ESP32 sensor telemetry does not authorize or imply direct relay/pump control. Unverified pH/TDS estimates must not be promoted to the canonical `sensor_readings` path or affect water-quality automation. See `docs/ESP32_TELEMETRY.md` for the request format, security boundary, and setup.
+
+---
+
 ## 1. Project Overview
 
 AquaMind is a thesis prototype for a **Smart Aquaponics Monitoring and Automation System** running on **Raspberry Pi 5**. The system provides comprehensive monitoring of water quality and environmental conditions, with automated and remote control of actuators for feeding, circulation, aeration, ventilation, and water level management.

@@ -127,7 +127,7 @@ The Raspberry Pi 5 hosts a local touchscreen interface that communicates with th
 
 | Decision | Status |
 |----------|--------|
-| ESP32 → Raspberry Pi 5 | ✅ Confirmed |
+| Raspberry Pi 5 remains the main controller; ESP32 sensor telemetry is supported | ✅ Confirmed |
 | Misting system → Removed | ✅ Confirmed |
 | Interactive touchscreen → Added | ✅ Confirmed |
 | Remote web controls → Added | ✅ Confirmed |
