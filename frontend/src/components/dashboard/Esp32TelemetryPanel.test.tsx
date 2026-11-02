@@ -49,7 +49,7 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(screen.getByText(/17\.45 \(not a valid calibrated pH reading\)/)).toBeInTheDocument()
     expect(screen.getByText(/1249 ppm \(not calibrated\)/)).toBeInTheDocument()
     expect(screen.getAllByText('No reading').length).toBeGreaterThanOrEqual(3)
-    expect(screen.getByText('Sequence', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Sequence' })).toBeInTheDocument()
     expect(listEsp32Telemetry).toHaveBeenCalledWith('system-1')
   })
 
