@@ -23,6 +23,8 @@ from app.hardware.sensor_runtime import (
     build_hardware_sensor_runtime,
 )
 
+from app.api.esp32_telemetry import router as esp32_telemetry_router
+
 from app.api.systems import (
     router as systems_router,
 )
@@ -469,6 +471,10 @@ app.include_router(
         )
     ],
 )
+
+
+# ESP32 POST uses its own device token; GET routes require admin login.
+app.include_router(esp32_telemetry_router, prefix="/api/v1")
 
 
 # ============================================================

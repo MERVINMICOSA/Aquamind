@@ -8,6 +8,7 @@ from app.models.system import (
     User,
 )
 from app.models.sensors import Sensor, SensorCalibration, SensorReading
+from app.models.esp32_telemetry import Esp32Telemetry
 from app.models.actuators import Actuator, ActuatorEvent
 from app.models.automation import AutomationRule, AutomationRun
 from app.models.feeding import FeedingSchedule, FeederCalibration, FeedingEvent, FishPopulationRecord
@@ -26,6 +27,7 @@ __all__ = [
     "Sensor",
     "SensorCalibration",
     "SensorReading",
+    "Esp32Telemetry",
     "Actuator",
     "ActuatorEvent",
     "AutomationRule",
