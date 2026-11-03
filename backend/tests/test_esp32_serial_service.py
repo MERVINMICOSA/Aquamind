@@ -105,7 +105,7 @@ async def test_usb_packet_saved_and_visible_to_dashboard(
         "/api/v1/esp32/telemetry/latest", params={"system_id": str(system_id)},
     )
     assert latest.status_code == 200
-    assert latest.json()["packet"] == PACKET
+    assert latest.json()["packet"] == {**PACKET, "raw_readings": None}
     assert latest.json()["packet"]["ph"] is None
     assert latest.json()["packet"]["tds_ppm"] is None
 
@@ -122,6 +122,49 @@ async def test_usb_packet_saved_and_visible_to_dashboard(
 
     # Device packets do not trigger existing sensor automation/alerts.
     assert (await client.get("/api/v1/sensor-readings")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_usb_raw_readings_survive_database_and_authenticated_api(
+    client: AsyncClient, test_session_factory,
+):
+    system = await client.post(
+        "/api/v1/systems",
+        json={"name": "Raw readings", "timezone": "UTC", "is_active": True},
+    )
+    assert system.status_code == 201
+    system_id = UUID(system.json()["id"])
+
+    diagnostics = {
+        "ph": {"status": "ok", "value": 0, "unit": "adc_count"},
+        "tds": {"status": "ok", "value": 2076, "unit": "adc_count"},
+        "ultrasonic": {
+            "status": "timeout", "value": None,
+            "unit": "microseconds", "error_code": "echo_timeout",
+        },
+        "water_temperature": {
+            "status": "disconnected", "error_code": "ds18b20_disconnected",
+        },
+    }
+    packet = Esp32SensorPacket.model_validate({
+        **PACKET, "raw_readings": diagnostics,
+    })
+    assert await persist_esp32_packet(
+        test_session_factory,
+        system_id=system_id,
+        expected_device_id=PACKET["device_id"],
+        packet=packet,
+    ) == "created"
+
+    latest = await client.get(
+        "/api/v1/esp32/telemetry/latest", params={"system_id": str(system_id)},
+    )
+    assert latest.status_code == 200
+    assert latest.json()["packet"]["raw_readings"]["ph"]["value"] == 0
+    assert latest.json()["packet"]["raw_readings"]["ultrasonic"]["status"] == "timeout"
+    assert latest.json()["packet"]["raw_readings"]["water_temperature"]["error_code"] == "ds18b20_disconnected"
+    assert latest.json()["packet"]["ph"] is None
+    assert latest.json()["packet"]["tds_ppm"] is None
 
 
 @pytest.mark.asyncio
