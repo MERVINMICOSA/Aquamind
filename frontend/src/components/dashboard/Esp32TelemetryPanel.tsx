@@ -16,12 +16,19 @@ function timestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
 }
 
+function waterPresence(value: boolean | null | undefined): string {
+  if (value == null) return 'Unknown — calibrate threshold'
+  return value ? 'Wet' : 'Dry'
+}
+
 function fields(packet: Esp32SensorPacket) {
   return [
     { label: 'Water temperature', value: numeric(packet.water_temp_c, ' °C') },
     { label: 'pH', value: packet.ph_calibrated ? numeric(packet.ph) : 'Not calibrated' },
     { label: 'TDS', value: packet.tds_calibrated ? numeric(packet.tds_ppm, ' ppm', 0) : 'Not calibrated' },
     { label: 'Water level', value: numeric(packet.water_level_pct, '%') },
+    { label: 'Reservoir water', value: waterPresence(packet.reservoir_water_present) },
+    { label: 'Second raft water', value: waterPresence(packet.raft2_water_present) },
     { label: 'Air temperature', value: numeric(packet.air_temp_c, ' °C') },
     { label: 'Air humidity', value: numeric(packet.humidity_pct, '%') },
     { label: 'Ultrasonic distance', value: numeric(packet.distance_cm, ' cm') },
@@ -36,6 +43,8 @@ const rawSensorFields: { key: keyof Esp32RawReadings; label: string }[] = [
   { key: 'ultrasonic', label: 'Ultrasonic water level' },
   { key: 'air_temperature', label: 'Air temperature' },
   { key: 'humidity', label: 'Humidity' },
+  { key: 'reservoir_level', label: 'Reservoir presence probe' },
+  { key: 'raft2_level', label: 'Second raft presence probe' },
 ]
 
 function rawStatus(reading: Esp32RawSensorReading | null | undefined): string {
@@ -159,6 +168,8 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
             <p>
               Status is reported by ESP32 firmware, never inferred from a null measurement.
               Uncalibrated pH/TDS values can be null even when their raw sensors work.
+              The reservoir and second-raft probes are analog: an ADC read does not prove
+              the probe is physically connected. Wet/dry requires measured thresholds.
             </p>
             {packet.raw_readings ? (
               <div className="esp32-telemetry__history">
@@ -191,7 +202,7 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
           <div className="esp32-telemetry__history">
             <table>
               <thead>
-                <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th></tr>
+                <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th><th>Reservoir raw</th><th>Raft 2 raw</th></tr>
               </thead>
               <tbody>
                 {packets.map((item) => (
@@ -205,6 +216,8 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
                     <td>{rawValue(item.packet.raw_readings?.ph)}</td>
                     <td>{rawValue(item.packet.raw_readings?.tds)}</td>
                     <td>{rawStatus(item.packet.raw_readings?.ultrasonic)}</td>
+                    <td>{rawValue(item.packet.raw_readings?.reservoir_level)}</td>
+                    <td>{rawValue(item.packet.raw_readings?.raft2_level)}</td>
                   </tr>
                 ))}
               </tbody>
