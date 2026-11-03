@@ -23,6 +23,13 @@ import type {
   TelemetryTimeliness,
 } from '../utils/telemetryTimeliness'
 
+import {
+  buildDashboardDemo,
+  buildDemoSensorTrend,
+  buildDemoActuatorEvents,
+  buildDemoEsp32Packets,
+} from '../data/dashboardDemo'
+
 import { Esp32TelemetryPanel } from '../components/dashboard/Esp32TelemetryPanel'
 
 import {
@@ -130,8 +137,10 @@ function formatTimeliness(
 
 
 export function DashboardPage() {
-  const dashboard =
+  const liveDashboard =
     useDashboardOverview()
+
+  const [previewRequested, setPreviewRequested] = useState(false)
 
   /*
    * Local browser clock only.
@@ -141,6 +150,16 @@ export function DashboardPage() {
    */
   const nowMs =
     useCurrentTime()
+
+  // Only offer the browser-only preview for an empty, successfully loaded
+  // installation. It never creates a database record or uses the real API.
+  const demoPreview =
+    previewRequested &&
+    liveDashboard.systemsStatus === 'ready' &&
+    liveDashboard.systems.length === 0
+
+  const dashboard =
+    demoPreview ? buildDashboardDemo(nowMs) : liveDashboard
 
 
   const [
@@ -161,10 +180,18 @@ export function DashboardPage() {
     null
 
 
-  const trend =
+  const realTrend =
     useDashboardSensorTrend(
-      trendSensor?.id ?? null,
+      demoPreview ? null : trendSensor?.id ?? null,
     )
+
+  const trend = demoPreview
+    ? {
+        readings: buildDemoSensorTrend(trendSensor?.id ?? null, nowMs),
+        status: 'ready' as const,
+        errorMessage: null,
+      }
+    : realTrend
 
 
   const [
@@ -185,10 +212,18 @@ export function DashboardPage() {
     null
 
 
-  const activity =
+  const realActivity =
     useDashboardActuatorActivity(
-      activityActuator?.id ?? null,
+      demoPreview ? null : activityActuator?.id ?? null,
     )
+
+  const activity = demoPreview
+    ? {
+        events: buildDemoActuatorEvents(activityActuator?.id ?? null, nowMs),
+        status: 'ready' as const,
+        errorMessage: null,
+      }
+    : realActivity
 
 
   // ==========================================================
@@ -257,7 +292,7 @@ export function DashboardPage() {
         </div>
 
 
-        {dashboard.systems.length >
+        {!demoPreview && dashboard.systems.length >
           0 && (
           <div className="system-selector">
             <label
@@ -292,6 +327,26 @@ export function DashboardPage() {
           </div>
         )}
       </header>
+
+      {demoPreview && (
+        <div className="dashboard-demo-banner" role="status">
+          <div>
+            <strong>DEMO PREVIEW — sample data only</strong>
+            <p>
+              These readings, device packets, alerts and actuator events are
+              fictional layout examples. No hardware is connected, no database
+              records are written and no pumps are controlled.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="dashboard-demo-button"
+            onClick={() => setPreviewRequested(false)}
+          >
+            Exit demo preview
+          </button>
+        </div>
+      )}
 
 
       {/* =====================================================
@@ -349,6 +404,17 @@ export function DashboardPage() {
               available yet. Sensor, actuator,
               and alert data will appear after
               a system is configured.
+            </p>
+            <button
+              type="button"
+              className="dashboard-demo-button"
+              onClick={() => setPreviewRequested(true)}
+            >
+              Preview dashboard with sample data
+            </button>
+            <p>
+              Demo preview is temporary and browser-only; it will not
+              create systems or alter your live AquaMind data.
             </p>
           </div>
         )}
@@ -409,7 +475,11 @@ export function DashboardPage() {
           </section>
 
 
-          <Esp32TelemetryPanel key={dashboard.selectedSystem.id} systemId={dashboard.selectedSystem.id} />
+          <Esp32TelemetryPanel
+            key={dashboard.selectedSystem.id}
+            systemId={dashboard.selectedSystem.id}
+            demoPackets={demoPreview ? buildDemoEsp32Packets(nowMs) : undefined}
+          />
 
           {/* =================================================
               OVERVIEW LOADING
@@ -1071,14 +1141,16 @@ export function DashboardPage() {
                         ))}
                     </div>
 
-                    <Link
-                      className="dashboard-activity-link"
-                      to={`/actuators/${encodeURIComponent(
-                        activityActuator.id,
-                      )}`}
-                    >
-                      View full actuator history
-                    </Link>
+                    {!demoPreview && (
+                      <Link
+                        className="dashboard-activity-link"
+                        to={`/actuators/${encodeURIComponent(
+                          activityActuator.id,
+                        )}`}
+                      >
+                        View full actuator history
+                      </Link>
+                    )}
                   </>
                 ) : null}
               </section>
