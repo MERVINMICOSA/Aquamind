@@ -121,7 +121,7 @@ export function buildDashboardDemo(nowMs: number) {
     systemsStatus: 'ready' as const,
     overviewStatus: 'ready' as const,
     errorMessage: null,
-    selectSystem: (_id: string | null) => {},
+    selectSystem: () => {},
   }
 }
 
