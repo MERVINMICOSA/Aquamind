@@ -5,6 +5,8 @@ import './Esp32TelemetryPanel.css'
 
 interface Props {
   systemId: string
+  /** Offline-only fixture, supplied by the demo dashboard. Never fetched. */
+  demoPackets?: Esp32Telemetry[]
 }
 
 function numeric(value: number | null, suffix = '', digits = 2): string {
@@ -75,11 +77,14 @@ function rawValue(reading: Esp32RawSensorReading | null | undefined): string {
  * Standalone, read-only view. It does not register values as calibrated
  * sensor readings or send any commands to pumps/actuators.
  */
-export function Esp32TelemetryPanel({ systemId }: Props) {
+export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
   const [packets, setPackets] = useState<Esp32Telemetry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
+    // Demo preview bypasses API polling entirely.
+    if (demoPackets !== undefined) return
+
     let active = true
     let busy = false
     // Parent keys this widget by systemId; remounting resets its state.
@@ -106,9 +111,11 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
       active = false
       window.clearInterval(timer)
     }
-  }, [systemId])
+  }, [systemId, demoPackets])
 
-  const latest = packets[0] ?? null
+  const displayedPackets = demoPackets ?? packets
+  const displayedStatus = demoPackets !== undefined ? 'ready' : status
+  const latest = displayedPackets[0] ?? null
   const packet = latest?.packet
 
   return (
@@ -121,13 +128,13 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
         <span>Saved packet history · Refreshes every 10 seconds</span>
       </div>
 
-      {status === 'loading' && (
+      {displayedStatus === 'loading' && (
         <p role="status">Loading ESP32 sensor packets...</p>
       )}
-      {status === 'error' && (
+      {displayedStatus === 'error' && (
         <p role="alert">Cannot refresh ESP32 data. Previously saved values may be stale.</p>
       )}
-      {status === 'ready' && latest === null && (
+      {displayedStatus === 'ready' && latest === null && (
         <p>No ESP32 packets saved for this system yet.</p>
       )}
 
@@ -205,7 +212,7 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
                 <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th><th>Reservoir raw</th><th>Raft 2 raw</th></tr>
               </thead>
               <tbody>
-                {packets.map((item) => (
+                {displayedPackets.map((item) => (
                   <tr key={item.id}>
                     <td>{timestamp(item.received_at)}</td>
                     <td>{item.packet.device_id}</td>

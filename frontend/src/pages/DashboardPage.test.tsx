@@ -1,6 +1,7 @@
 import {
   render,
   screen,
+  fireEvent,
 } from '@testing-library/react'
 import {
   beforeEach,
@@ -185,6 +186,40 @@ describe(
             },
           ),
         ).toBeInTheDocument()
+      },
+    )
+
+
+    it(
+      'previews the live dashboard layout with labeled browser-only sample data',
+      () => {
+        vi.mocked(useDashboardOverview).mockReturnValue({
+          systems: [], selectedSystem: null, selectedSystemId: null,
+          sensors: [], actuators: [], alerts: [], latestReadings: [],
+          systemsStatus: 'ready', overviewStatus: 'idle',
+          errorMessage: null, selectSystem: vi.fn(),
+        })
+
+        render(<DashboardPage />)
+
+        expect(screen.getByText('No aquaponics system configured')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', {
+          name: 'Preview dashboard with sample data',
+        }))
+
+        expect(screen.getByText('DEMO PREVIEW — sample data only')).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Latest sensor readings' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Sensor trends' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Recent actuator activity' })).toBeInTheDocument()
+        expect(screen.getByText('6 of 6 reporting')).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Fish tank pH' })).toBeInTheDocument()
+        expect(screen.getByText('7.1')).toBeInTheDocument()
+        expect(vi.mocked(useDashboardSensorTrend)).toHaveBeenLastCalledWith(null)
+        expect(vi.mocked(useDashboardActuatorActivity)).toHaveBeenLastCalledWith(null)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Exit demo preview' }))
+        expect(screen.getByText('No aquaponics system configured')).toBeInTheDocument()
+        expect(screen.queryByText('DEMO PREVIEW — sample data only')).not.toBeInTheDocument()
       },
     )
 

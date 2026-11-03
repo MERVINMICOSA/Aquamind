@@ -1,0 +1,54 @@
+/* Explicit, browser-only preview. Use a neutral color to avoid
+   confusing synthetic readings with online/live hardware status. */
+.dashboard-demo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 2px dashed #927339;
+  border-radius: 12px;
+  background: #fff9eb;
+  color: #453a20;
+  margin-bottom: 18px;
+}
+
+.dashboard-demo-banner strong {
+  display: block;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-demo-banner p {
+  margin: 6px 0 0;
+  max-width: 760px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.dashboard-demo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border: 1px solid #366753;
+  border-radius: 10px;
+  background: #326c56;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dashboard-demo-button:hover { background: #285743; }
+.dashboard-demo-button:focus-visible {
+  outline: 3px solid #b29a64;
+  outline-offset: 3px;
+}
+
+@media (max-width: 720px) {
+  .dashboard-demo-banner { align-items: stretch; }
+  .dashboard-demo-button { width: 100%; }
+}
