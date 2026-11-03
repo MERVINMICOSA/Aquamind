@@ -53,6 +53,32 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(listEsp32Telemetry).toHaveBeenCalledWith('system-1')
   })
 
+  it('shows device-reported raw values and faults, including real zero counts', async () => {
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-raw', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: {
+        ...packet,
+        raw_readings: {
+          ph: { status: 'ok', value: 0, unit: 'adc_count' },
+          tds: { status: 'ok', value: 2145, unit: 'adc_count' },
+          ultrasonic: { status: 'timeout', value: null, unit: 'microseconds', error_code: 'echo_timeout' },
+          water_temperature: { status: 'disconnected', error_code: 'ds18b20_disconnected' },
+        },
+      },
+    }])
+
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText('Raw USB readings and sensor status')).toBeInTheDocument()
+    expect(screen.getAllByText('0 ADC counts').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('2145 ADC counts').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('echo_timeout')).toBeInTheDocument()
+    expect(screen.getByText('ds18b20_disconnected')).toBeInTheDocument()
+    expect(screen.getByText('Disconnected')).toBeInTheDocument()
+    expect(screen.getAllByText('Timeout').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Not reported').length).toBeGreaterThanOrEqual(1)
+  })
+
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
