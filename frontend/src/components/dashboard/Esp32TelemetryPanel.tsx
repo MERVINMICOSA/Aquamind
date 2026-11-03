@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listEsp32Telemetry } from '../../services/esp32TelemetryService'
-import type { Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
+import type { Esp32RawReadings, Esp32RawSensorReading, Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
 import './Esp32TelemetryPanel.css'
 
 interface Props {
@@ -27,6 +27,39 @@ function fields(packet: Esp32SensorPacket) {
     { label: 'Ultrasonic distance', value: numeric(packet.distance_cm, ' cm') },
     { label: 'Water height', value: numeric(packet.water_height_cm, ' cm') },
   ]
+}
+
+const rawSensorFields: { key: keyof Esp32RawReadings; label: string }[] = [
+  { key: 'water_temperature', label: 'Water temperature' },
+  { key: 'ph', label: 'pH probe' },
+  { key: 'tds', label: 'TDS probe' },
+  { key: 'ultrasonic', label: 'Ultrasonic water level' },
+  { key: 'air_temperature', label: 'Air temperature' },
+  { key: 'humidity', label: 'Humidity' },
+]
+
+function rawStatus(reading: Esp32RawSensorReading | null | undefined): string {
+  if (!reading) return 'Not reported'
+  switch (reading.status) {
+    case 'ok': return 'Reading OK'
+    case 'not_configured': return 'Not configured'
+    case 'disconnected': return 'Disconnected'
+    case 'timeout': return 'Timeout'
+    case 'read_error': return 'Read failure'
+  }
+}
+
+function rawValue(reading: Esp32RawSensorReading | null | undefined): string {
+  if (!reading || reading.value == null) return '—'
+  const units: Record<string, string> = {
+    adc_count: 'ADC counts',
+    microseconds: 'µs',
+    celsius: '°C',
+    percent: '%',
+    sensor_ticks: 'sensor ticks',
+    volts: 'V',
+  }
+  return `${reading.value} ${reading.unit ? units[reading.unit] : ''}`.trim()
 }
 
 /**
@@ -121,11 +154,44 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
             </p>
           </div>
 
+          <div className="esp32-telemetry__diagnostics">
+            <h3>Raw USB readings and sensor status</h3>
+            <p>
+              Status is reported by ESP32 firmware, never inferred from a null measurement.
+              Uncalibrated pH/TDS values can be null even when their raw sensors work.
+            </p>
+            {packet.raw_readings ? (
+              <div className="esp32-telemetry__history">
+                <table>
+                  <thead>
+                    <tr><th>Sensor</th><th>Read status</th><th>Raw reading</th><th>Device fault code</th></tr>
+                  </thead>
+                  <tbody>
+                    {rawSensorFields.map(({ key, label }) => {
+                      const reading = packet.raw_readings?.[key]
+                      return (
+                        <tr key={key}>
+                          <td>{label}</td>
+                          <td>{rawStatus(reading)}</td>
+                          <td>{rawValue(reading)}</td>
+                          <td>{reading?.error_code ?? '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>No raw diagnostics in this packet. Update the ESP32 firmware to report
+                raw_readings; this does not prove the sensor is faulty.</p>
+            )}
+          </div>
+
           <h3>Recent packets</h3>
           <div className="esp32-telemetry__history">
             <table>
               <thead>
-                <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th></tr>
+                <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th></tr>
               </thead>
               <tbody>
                 {packets.map((item) => (
@@ -136,6 +202,9 @@ export function Esp32TelemetryPanel({ systemId }: Props) {
                     <td>{numeric(item.packet.water_temp_c, '', 2)}</td>
                     <td>{item.packet.ph_calibrated ? 'Calibrated' : 'Unverified'}</td>
                     <td>{item.packet.tds_calibrated ? 'Calibrated' : 'Unverified'}</td>
+                    <td>{rawValue(item.packet.raw_readings?.ph)}</td>
+                    <td>{rawValue(item.packet.raw_readings?.tds)}</td>
+                    <td>{rawStatus(item.packet.raw_readings?.ultrasonic)}</td>
                   </tr>
                 ))}
               </tbody>
