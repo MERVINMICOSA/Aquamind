@@ -101,6 +101,33 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(screen.getAllByText('1800 ADC counts').length).toBeGreaterThanOrEqual(1)
   })
 
+  it('renders sample USB and water-probe diagnostics without polling the API', async () => {
+    const samplePacket = {
+      ...packet,
+      device_id: 'demo-esp32-not-connected',
+      reservoir_water_present: null,
+      raft2_water_present: null,
+      raw_readings: {
+        reservoir_level: { status: 'ok' as const, value: 1820, unit: 'adc_count' as const },
+        raft2_level: { status: 'ok' as const, value: 1900, unit: 'adc_count' as const },
+      },
+    }
+    render(<Esp32TelemetryPanel
+      systemId="demo"
+      demoPackets={[{
+        id: 'demo-row',
+        system_id: 'demo',
+        received_at: '2026-11-03T00:00:00Z',
+        packet: samplePacket,
+      }]}
+    />)
+
+    expect(screen.getByText('demo-esp32-not-connected')).toBeInTheDocument()
+    expect(screen.getAllByText('1820 ADC counts').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1900 ADC counts').length).toBeGreaterThan(0)
+    expect(listEsp32Telemetry).not.toHaveBeenCalled()
+  })
+
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
