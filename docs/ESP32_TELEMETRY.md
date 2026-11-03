@@ -147,6 +147,43 @@ The signed-in dashboard shows status/raw value/error per sensor for the
 latest packet, plus recent pH/TDS raw counts and ultrasonic status.
 Old history without `raw_readings` stays readable and shows **Not reported**.
 
+## Reservoir and lower raft red analog water-presence probes
+
+For the common three-pin red S/+/- resistive sensors, connect **S** to
+ESP32 GPIO32 (reservoir) or GPIO33 (second raft), **+** to **3V3** and **-**
+to **GND**. Those are ADC1 inputs, independent of pH GPIO35 and TDS GPIO34.
+Ensure the exposed conductive traces only touch the water at the intended
+presence-detection height; keep the connector above the waterline.
+
+The ESP32 can report these two raw sensor-native values under:
+
+```json
+"raw_readings": {
+  "reservoir_level": {"status": "ok", "value": 415, "unit": "adc_count"},
+  "raft2_level": {"status": "ok", "value": 1980, "unit": "adc_count"}
+},
+"reservoir_water_present": null,
+"raft2_water_present": null
+```
+
+This is an illustrative **fragment**, not a complete packet or verified
+wet/dry reading. `raw_readings.reservoir_level` and
+`raw_readings.raft2_level` are optional alongside existing sensor keys.
+Boolean `reservoir_water_present` and `raft2_water_present` are optional
+and **null until the respective firmware threshold has been determined by
+measuring dry and wet raw ADC counts at the actual installation**. Once
+calibrated, firmware may send true (wet) or false (dry).
+A raw ADC reading of 0 is a numeric value, not `null`. An analog reading
+marked `ok` only means the ADC conversion completed: these resistive probes
+cannot reliably self-diagnose disconnection and are susceptible to corrosion,
+fouling, salt/mineral deposits and splashes. Do **not** use the new readings
+alone for unattended dry-run pump protection.
+
+This optional schema-v1 extension uses the same existing JSON telemetry
+storage. Older device packets and database rows remain valid; they show
+unknown presence and 'Not reported' raw data. Pump control remains disabled
+and independent of these USB telemetry values.
+
 ## Find your Linux serial port
 
 With the ESP32 attached to Raspberry Pi:
