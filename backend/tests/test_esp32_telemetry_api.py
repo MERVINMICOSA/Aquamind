@@ -52,3 +52,49 @@ def test_reject_invalid_or_untrusted_v1_values(changes):
 def test_accepts_genuinely_calibrated_readings():
     data = {**PACKET, "ph_calibrated": True, "ph": 7.1, "tds_calibrated": True, "tds_ppm": 900}
     assert Esp32SensorPacket.model_validate(data).ph == 7.1
+
+
+def test_accepts_device_raw_readings_and_distinguishes_zero_from_null():
+    packet = Esp32SensorPacket.model_validate({
+        **PACKET,
+        "raw_readings": {
+            "ph": {"status": "ok", "value": 0, "unit": "adc_count"},
+            "tds": {"status": "ok", "value": 2145, "unit": "adc_count"},
+            "ultrasonic": {
+                "status": "timeout", "unit": "microseconds",
+                "error_code": "echo_timeout",
+            },
+            "water_temperature": {"status": "not_configured"},
+        },
+    })
+    assert packet.raw_readings.ph.value == 0
+    assert packet.raw_readings.ultrasonic.value is None
+    assert packet.raw_readings.water_temperature.status == "not_configured"
+    assert packet.ph is None  # pH is uncalibrated, *not* necessarily broken
+
+
+@pytest.mark.parametrize(
+    "bad_reading",
+    [
+        {"status": "ok", "value": None, "unit": "adc_count"},
+        {"status": "ok", "value": 20},
+        {"status": "read_error", "value": 123, "unit": "adc_count"},
+        {"status": "ok", "value": 70000, "unit": "adc_count"},
+        {"status": "ok", "value": 0.5, "unit": "adc_count"},
+        {"status": "ok", "value": -10, "unit": "microseconds"},
+        {"status": "unknown", "value": 20, "unit": "adc_count"},
+        {"status": "ok", "value": float("nan"), "unit": "volts"},
+    ],
+)
+def test_reject_invalid_or_misleading_raw_diagnostics(bad_reading):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Esp32SensorPacket.model_validate({
+            **PACKET, "raw_readings": {"ph": bad_reading},
+        })
+
+
+def test_legacy_packets_do_not_fabricate_raw_readings_when_persisted():
+    packet = Esp32SensorPacket.model_validate(PACKET)
+    assert packet.raw_readings is None
+    assert "raw_readings" not in packet.model_dump(mode="json", exclude_unset=True)
