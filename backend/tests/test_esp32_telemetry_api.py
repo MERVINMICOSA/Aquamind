@@ -98,3 +98,26 @@ def test_legacy_packets_do_not_fabricate_raw_readings_when_persisted():
     packet = Esp32SensorPacket.model_validate(PACKET)
     assert packet.raw_readings is None
     assert "raw_readings" not in packet.model_dump(mode="json", exclude_unset=True)
+
+
+def test_two_red_presence_probes_keep_raw_adc_separate_from_wet_dry():
+    packet = Esp32SensorPacket.model_validate({
+        **PACKET,
+        "reservoir_water_present": None,
+        "raft2_water_present": None,
+        "raw_readings": {
+            "reservoir_level": {"status": "ok", "value": 0, "unit": "adc_count"},
+            "raft2_level": {"status": "ok", "value": 1760, "unit": "adc_count"},
+        },
+    })
+    assert packet.raw_readings.reservoir_level.value == 0
+    assert packet.raw_readings.raft2_level.value == 1760
+    assert packet.reservoir_water_present is None
+    assert packet.raft2_water_present is None
+    packet2 = Esp32SensorPacket.model_validate({
+        **PACKET,
+        "reservoir_water_present": False,
+        "raft2_water_present": True,
+    })
+    assert packet2.reservoir_water_present is False
+    assert packet2.raft2_water_present is True

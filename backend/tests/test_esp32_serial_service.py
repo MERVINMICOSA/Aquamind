@@ -105,7 +105,7 @@ async def test_usb_packet_saved_and_visible_to_dashboard(
         "/api/v1/esp32/telemetry/latest", params={"system_id": str(system_id)},
     )
     assert latest.status_code == 200
-    assert latest.json()["packet"] == {**PACKET, "raw_readings": None}
+    assert latest.json()["packet"] == {**PACKET, "raw_readings": None, "reservoir_water_present": None, "raft2_water_present": None}
     assert latest.json()["packet"]["ph"] is None
     assert latest.json()["packet"]["tds_ppm"] is None
 

@@ -48,6 +48,9 @@ class Esp32RawReadings(BaseModel):
     ultrasonic: Esp32RawSensorReading | None = None
     air_temperature: Esp32RawSensorReading | None = None
     humidity: Esp32RawSensorReading | None = None
+    # Resistive probes report ADC counts; read status != verified wet/dry.
+    reservoir_level: Esp32RawSensorReading | None = None
+    raft2_level: Esp32RawSensorReading | None = None
 
 
 class Esp32SensorPacket(BaseModel):
@@ -77,6 +80,10 @@ class Esp32SensorPacket(BaseModel):
     water_level_pct: float | None = Field(default=None, ge=0, le=100)
     air_temp_c: float | None = Field(default=None, ge=-50, le=90)
     humidity_pct: float | None = Field(default=None, ge=0, le=100)
+
+    # Optional wet/dry flags; null until actual thresholds are calibrated.
+    reservoir_water_present: bool | None = None
+    raft2_water_present: bool | None = None
 
     # Optional v1 extension: firmware must report these, never inferred from null.
     raw_readings: Esp32RawReadings | None = None

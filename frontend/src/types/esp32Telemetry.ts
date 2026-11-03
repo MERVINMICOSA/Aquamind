@@ -28,6 +28,8 @@ export interface Esp32RawReadings {
   ultrasonic?: Esp32RawSensorReading | null
   air_temperature?: Esp32RawSensorReading | null
   humidity?: Esp32RawSensorReading | null
+  reservoir_level?: Esp32RawSensorReading | null
+  raft2_level?: Esp32RawSensorReading | null
 }
 
 /** One complete packet from ESP32 firmware, schema version 1. */
@@ -51,6 +53,8 @@ export interface Esp32SensorPacket {
   water_level_pct: number | null
   air_temp_c: number | null
   humidity_pct: number | null
+  reservoir_water_present?: boolean | null
+  raft2_water_present?: boolean | null
   /** Omitted by older firmware; null/absent never means the sensor failed. */
   raw_readings?: Esp32RawReadings | null
 }

@@ -79,6 +79,28 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(screen.getAllByText('Not reported').length).toBeGreaterThanOrEqual(1)
   })
 
+  it('shows both water probe ADC counts and does not guess wet/dry', async () => {
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-water', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: {
+        ...packet,
+        reservoir_water_present: null,
+        raft2_water_present: null,
+        raw_readings: {
+          reservoir_level: { status: 'ok', value: 0, unit: 'adc_count' },
+          raft2_level: { status: 'ok', value: 1800, unit: 'adc_count' },
+        },
+      },
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText('Reservoir water')).toBeInTheDocument()
+    expect(screen.getByText('Second raft water')).toBeInTheDocument()
+    expect(screen.getAllByText('Unknown — calibrate threshold')).toHaveLength(2)
+    expect(screen.getAllByText('0 ADC counts').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('1800 ADC counts').length).toBeGreaterThanOrEqual(1)
+  })
+
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
