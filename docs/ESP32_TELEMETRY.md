@@ -52,6 +52,101 @@ only complete JSON objects are sent. An ESP32 console attached to another
 computer must be closed so the Pi can own the device. Opening USB serial may
 reset some ESP32 boards; the worker reconnects automatically if unplugged.
 
+## Raw sensor diagnostics (optional schema-v1 extension)
+
+To diagnose a JSON `null`, the **ESP32 firmware** must send both the
+sensor-native reading and the outcome of trying to read that sensor.
+The Pi cannot recover an ADC count, ultrasonic echo duration, or I²C/1-Wire
+fault from a processed null value. The backend accepts an optional
+`raw_readings` object in otherwise unchanged schema-version-1 packets.
+
+Example fragment to merge into an existing complete `aquamind_sensor` JSON
+packet (illustrative values, **not live measurements**):
+
+```json
+{
+  "raw_readings": {
+    "ph": {"status": "ok", "value": 2100, "unit": "adc_count"},
+    "tds": {"status": "ok", "value": 1560, "unit": "adc_count"},
+    "ultrasonic": {"status": "timeout", "value": null, "unit": "microseconds", "error_code": "echo_timeout"},
+    "water_temperature": {"status": "disconnected", "value": null, "unit": "celsius", "error_code": "ds18b20_disconnected"},
+    "air_temperature": {"status": "ok", "value": 27.67, "unit": "celsius"},
+    "humidity": {"status": "ok", "value": 84.6, "unit": "percent"}
+  }
+}
+```
+
+Supported sensor keys: `ph`, `tds`, `ultrasonic`, `water_temperature`,
+`air_temperature`, and `humidity`. Each key is optional for compatibility,
+but firmware should report all installed/expected sensors so the operator can
+distinguish a silent device from an explicit fault.
+
+- `status: "ok"` means a device-side read returned `value`, **not** that the
+  probe is calibrated or physically verified. A raw ADC value of **0 is valid
+  data**, distinct from JSON `null`. Analog reads can return numeric values
+  even when probes are disconnected or floating.
+- `status: "not_configured"` means firmware intentionally disabled that
+  sensor; `disconnected` means firmware **detected** disconnection;
+  `timeout` means a timed-out read; `read_error` means another failed read.
+  These failures must not include a numeric `value`.
+- If no sensor diagnostic is supplied, the dashboard says **Not reported**,
+  not **Disconnected** or **Reading OK**.
+- `unit` may be `adc_count`, `microseconds`, `celsius`, `percent`,
+  `sensor_ticks`, or `volts`. `error_code` is an optional short device-side
+  machine-readable identifier such as `echo_timeout`.
+- Raw diagnostics do **not** authorize uncalibrated `ph` or `tds_ppm`.
+  Keep those fields `null` when `ph_calibrated=false` /
+  `tds_calibrated=false`. Existing top-level `ph_voltage_v` and
+  `tds_voltage_v` remain available.
+- When using SHT40/DS18B20 libraries, a decoded temperature or humidity
+  returned by the sensor library can be reported in `celsius`/`percent`;
+  do not call it an ADC count unless you actually read ADC hardware.
+
+ArduinoJson integration sketch (illustrative; use the actual configured
+pins and sensor library calls in your existing firmware):
+
+```cpp
+// doc is the same JSON document containing the full required v1 packet.
+// PH_ADC_PIN and TDS_ADC_PIN must already be defined for your wired ESP32.
+JsonObject raw = doc["raw_readings"].to<JsonObject>();
+JsonObject phRaw = raw["ph"].to<JsonObject>();
+phRaw["status"] = "ok";  // analogRead executed; NOT proof the probe is good
+phRaw["value"] = analogRead(PH_ADC_PIN);
+phRaw["unit"] = "adc_count";
+
+JsonObject tdsRaw = raw["tds"].to<JsonObject>();
+tdsRaw["status"] = "ok";
+tdsRaw["value"] = analogRead(TDS_ADC_PIN);
+tdsRaw["unit"] = "adc_count";
+
+// Set ultrasonic status based on the *actual* echo timing result.
+// For pulseIn(), 0 indicates no pulse before timeout; don't report it
+// as a measured zero-centimeter distance.
+JsonObject echoRaw = raw["ultrasonic"].to<JsonObject>();
+unsigned long echoUs = pulseIn(ECHO_PIN, HIGH, 30000);
+echoRaw["unit"] = "microseconds";
+if (echoUs == 0) {
+  echoRaw["status"] = "timeout";
+  echoRaw["value"] = nullptr;
+  echoRaw["error_code"] = "echo_timeout";
+  doc["distance_cm"] = nullptr;
+} else {
+  echoRaw["status"] = "ok";
+  echoRaw["value"] = echoUs;
+}
+
+// Report DS18B20/SHT40 errors only after checking your actual library's
+// return values, sentinel values, CRC/status codes, or connection flags.
+// Never claim "ok" for an unattempted read, or invent a raw value.
+```
+
+The serial receiver validates and stores these optional diagnostics
+alongside the original measurements in PostgreSQL's existing JSON
+`esp32_telemetry.packet` column; **no new migration is necessary**.
+The signed-in dashboard shows status/raw value/error per sensor for the
+latest packet, plus recent pH/TDS raw counts and ultrasonic status.
+Old history without `raw_readings` stays readable and shows **Not reported**.
+
 ## Find your Linux serial port
 
 With the ESP32 attached to Raspberry Pi:
@@ -139,7 +234,7 @@ does **not** populate canonical sensor readings or trigger pump automation.
 ## Dashboard access and diagnostics
 
 The signed-in dashboard displays the latest packet, eight measurement
-cards, unverified voltage diagnostics, and the last 10 records. It polls
+cards, unverified voltage diagnostics, optional raw read diagnostics, and the last 10 records. It polls
 approximately every 10 seconds.
 
 Protected read-only API endpoints:

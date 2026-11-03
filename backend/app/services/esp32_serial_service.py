@@ -105,7 +105,9 @@ async def persist_esp32_packet(
     if packet.device_id != expected_device_id:
         return "conflict"
 
-    contents = packet.model_dump(mode="json")
+    # Preserve the wire format as sent. New optional diagnostic fields should
+    # not be fabricated as null in legacy packets (or break retry deduplication).
+    contents = packet.model_dump(mode="json", exclude_unset=True)
     identity = (
         Esp32Telemetry.system_id == system_id,
         Esp32Telemetry.device_id == packet.device_id,
