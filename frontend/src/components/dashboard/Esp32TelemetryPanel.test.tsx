@@ -122,7 +122,7 @@ describe('ESP32 telemetry dashboard panel', () => {
       }]}
     />)
 
-    expect(screen.getByText('demo-esp32-not-connected')).toBeInTheDocument()
+    expect(screen.getAllByText('demo-esp32-not-connected').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('1820 ADC counts').length).toBeGreaterThan(0)
     expect(screen.getAllByText('1900 ADC counts').length).toBeGreaterThan(0)
     expect(listEsp32Telemetry).not.toHaveBeenCalled()
