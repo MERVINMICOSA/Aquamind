@@ -30,6 +30,8 @@ import {
   buildDemoEsp32Packets,
 } from '../data/dashboardDemo'
 
+import './DashboardPageDemo.css'
+
 import { Esp32TelemetryPanel } from '../components/dashboard/Esp32TelemetryPanel'
 
 import {
