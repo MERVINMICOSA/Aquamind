@@ -11,6 +11,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
+from time import monotonic
 from typing import Callable
 from uuid import UUID
 
@@ -211,8 +212,15 @@ class Esp32SerialWorker:
                 )
                 logger.info("ESP32 USB serial receiver connected")
                 framer = SerialJsonFramer()
+                last_valid_packet_at = monotonic()
 
                 while not self._stopping.is_set():
+                    if monotonic() - last_valid_packet_at >= 30:
+                        logger.warning(
+                            "ESP32 telemetry silent for 30 seconds; reopening USB serial port"
+                        )
+                        break
+
                     chunk = await asyncio.to_thread(connection.read, 256)
                     if not chunk:
                         # Avoid a busy loop with fake/nonblocking serial drivers.
@@ -227,6 +235,8 @@ class Esp32SerialWorker:
                         if packet.device_id != self.device_id:
                             logger.warning("ESP32 serial packet rejected: unexpected device_id")
                             continue
+
+                        last_valid_packet_at = monotonic()
                         try:
                             outcome = await persist_esp32_packet(
                                 self.session_factory,
