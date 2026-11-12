@@ -31,6 +31,7 @@ const packet = {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.clearAllMocks()
 })
 
@@ -79,7 +80,7 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(screen.getAllByText('Not reported').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows both water probe ADC counts and does not guess wet/dry', async () => {
+  it('hides the obsolete water probes even when old packets contain them', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([{
       id: 'row-water', system_id: 'system-1',
       received_at: '2026-11-03T00:00:00Z',
@@ -94,11 +95,11 @@ describe('ESP32 telemetry dashboard panel', () => {
       },
     }])
     render(<Esp32TelemetryPanel systemId="system-1" />)
-    expect(await screen.findByText('Reservoir water')).toBeInTheDocument()
-    expect(screen.getByText('Second raft water')).toBeInTheDocument()
-    expect(screen.getAllByText('Unknown — calibrate threshold')).toHaveLength(2)
-    expect(screen.getAllByText('0 ADC counts').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('1800 ADC counts').length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByText('Raw USB readings and sensor status')).toBeInTheDocument()
+    expect(screen.queryByText('Reservoir water')).not.toBeInTheDocument()
+    expect(screen.queryByText('Second raft water')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reservoir presence probe')).not.toBeInTheDocument()
+    expect(screen.queryByText('Second raft presence probe')).not.toBeInTheDocument()
   })
 
   it('renders sample USB and water-probe diagnostics without polling the API', async () => {
@@ -123,9 +124,22 @@ describe('ESP32 telemetry dashboard panel', () => {
     />)
 
     expect(screen.getAllByText('demo-esp32-not-connected').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('1820 ADC counts').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('1900 ADC counts').length).toBeGreaterThan(0)
+    expect(screen.queryByText('1820 ADC counts')).not.toBeInTheDocument()
+    expect(screen.queryByText('1900 ADC counts')).not.toBeInTheDocument()
     expect(listEsp32Telemetry).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['Connected', '2026-11-03T00:00:58Z'],
+    ['No recent data', '2026-11-03T00:00:30Z'],
+    ['Disconnected', '2026-11-03T00:00:00Z'],
+  ])('shows %s based on the newest saved packet timestamp', async (label, received_at) => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:01:00Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-status', system_id: 'system-1', received_at, packet,
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText(`ESP32: ${label}`)).toBeInTheDocument()
   })
 
   it('shows no records when the database contains no packets', async () => {

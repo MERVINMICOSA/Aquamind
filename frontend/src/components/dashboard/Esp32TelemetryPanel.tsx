@@ -18,6 +18,46 @@ function timestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
 }
 
+type SignalHealth = {
+  state: 'connected' | 'stale' | 'disconnected' | 'unknown'
+  label: string
+  detail: string
+}
+
+function signalHealth(
+  latest: Esp32Telemetry | null,
+  requestStatus: 'loading' | 'ready' | 'error',
+  nowMs: number,
+): SignalHealth {
+  if (requestStatus === 'error') {
+    return { state: 'unknown', label: 'Status unavailable', detail: 'Cannot refresh telemetry from the backend.' }
+  }
+  if (requestStatus === 'loading') {
+    return { state: 'unknown', label: 'Checking connection', detail: 'Loading saved ESP32 packets.' }
+  }
+  if (latest === null) {
+    return { state: 'stale', label: 'No recent data', detail: 'No ESP32 packets have been saved for this system yet.' }
+  }
+
+  const receivedMs = Date.parse(latest.received_at)
+  if (!Number.isFinite(receivedMs) || receivedMs - nowMs > 10_000) {
+    return { state: 'unknown', label: 'Status unavailable', detail: 'Packet timestamp is invalid or clocks differ.' }
+  }
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - receivedMs) / 1000))
+  if (ageSeconds < 15) {
+    return { state: 'connected', label: 'Connected', detail: `Latest packet received ${ageSeconds}s ago.` }
+  }
+  if (ageSeconds < 45) {
+    return { state: 'stale', label: 'No recent data', detail: `Latest packet received ${ageSeconds}s ago. The ESP32 may be reconnecting.` }
+  }
+  return {
+    state: 'disconnected',
+    label: 'Disconnected',
+    detail: `No packet for ${ageSeconds}s. Inferred from missing data; USB may still be plugged in.`,
+  }
+}
+
 function fields(packet: Esp32SensorPacket) {
   return [
     { label: 'Water temperature', value: numeric(packet.water_temp_c, ' °C') },
@@ -71,6 +111,7 @@ function rawValue(reading: Esp32RawSensorReading | null | undefined): string {
 export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
   const [packets, setPackets] = useState<Esp32Telemetry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   useEffect(() => {
     // Demo preview bypasses API polling entirely.
@@ -96,7 +137,10 @@ export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
     }
 
     void refresh()
-    const timer = window.setInterval(() => void refresh(), 10000)
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now())
+      void refresh()
+    }, 10000)
 
     return () => {
       active = false
@@ -108,6 +152,9 @@ export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
   const displayedStatus = demoPackets !== undefined ? 'ready' : status
   const latest = displayedPackets[0] ?? null
   const packet = latest?.packet
+  const connection = demoPackets !== undefined
+    ? { state: 'unknown', label: 'Demo preview', detail: 'Sample data only; no physical ESP32 connection checked.' }
+    : signalHealth(latest, displayedStatus, nowMs)
 
   return (
     <section className="esp32-telemetry" aria-label="ESP32 device telemetry">
@@ -117,6 +164,14 @@ export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
           <h2>ESP32 sensor readings</h2>
         </div>
         <span>Saved packet history · Refreshes every 10 seconds</span>
+      </div>
+
+      <div className="esp32-telemetry__connection" data-state={connection.state} role="status" aria-live="polite">
+        <span className="esp32-telemetry__connection-dot" aria-hidden="true" />
+        <div>
+          <strong>ESP32: {connection.label}</strong>
+          <p>{connection.detail}</p>
+        </div>
       </div>
 
       {displayedStatus === 'loading' && (

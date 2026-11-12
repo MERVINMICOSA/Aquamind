@@ -50,3 +50,27 @@
   border-bottom: 1px solid var(--color-border, #dce5e1);
   white-space: nowrap;
 }
+
+/* Device freshness is inferred from the newest saved telemetry timestamp. */
+.esp32-telemetry__connection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 16px;
+  font-size: .94rem;
+}
+.esp32-telemetry__connection-dot {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #869197;
+}
+.esp32-telemetry__connection p {
+  margin: 3px 0 0;
+  color: var(--color-text-muted, #61706a);
+  font-size: .85rem;
+}
+.esp32-telemetry__connection[data-state="connected"] .esp32-telemetry__connection-dot { background: #159447; }
+.esp32-telemetry__connection[data-state="stale"] .esp32-telemetry__connection-dot { background: #d89b22; }
+.esp32-telemetry__connection[data-state="disconnected"] .esp32-telemetry__connection-dot { background: #c0332b; }
