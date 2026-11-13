@@ -44,6 +44,11 @@ const navigationItems:
       icon: 'sensors',
     },
     {
+      label: 'History',
+      path: '/history',
+      icon: 'sensors',
+    },
+    {
       label: 'Feeding',
       path: '/feeding',
       icon: 'feeding',
