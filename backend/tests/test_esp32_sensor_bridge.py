@@ -23,7 +23,7 @@ from app.db.enums import (
 )
 from app.models.alerts import Alert, AlertThreshold
 from app.models.esp32_telemetry import Esp32Telemetry
-from app.models.sensors import SensorCalibration, SensorReading
+from app.models.sensors import Sensor, SensorCalibration, SensorReading
 from app.models.system import User
 from app.schemas.esp32_telemetry import Esp32SensorPacket
 from app.services.esp32_sensor_bridge import parse_sensor_mapping
@@ -427,3 +427,128 @@ async def test_unverified_estimates_do_not_turn_into_trusted_ph_tds_readings(
         archive = (await session.execute(select(Esp32Telemetry))).scalars().one()
         assert archive.packet["ph_unverified_estimate"] == 17.45
         assert archive.packet["tds_unverified_ppm"] == 1249
+
+
+# ============================================================
+# IDENTIFIER-FREE AUTOMATIC SENSOR DISCOVERY
+# ============================================================
+
+
+async def save_automatic(factory, system, packet=None):
+    return await persist_esp32_packet(
+        factory,
+        system_id=system,
+        expected_device_id=DEVICE,
+        packet=Esp32SensorPacket.model_validate(packet or PACKET),
+        auto_discover_sensors=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_creates_sensor_records_and_readings_once(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    assert await save_automatic(test_session_factory, system) == "created"
+    assert await save_automatic(test_session_factory, system) == "duplicate"
+
+    async with test_session_factory() as session:
+        sensors = list((await session.execute(select(Sensor))).scalars().all())
+    assert {sensor.name for sensor in sensors} == {
+        "Water temperature", "Air temperature", "Humidity",
+    }
+    assert all(sensor.system_id == system for sensor in sensors)
+    assert all(sensor.is_enabled and not sensor.is_simulated for sensor in sensors)
+
+    registered = await readings(test_session_factory)
+    assert len(registered) == 3
+    assert {float(r.value_numeric) for r in registered} == {27.56, 27.67, 84.6}
+
+    page = await client.get(
+        "/api/v1/sensor-readings/latest", params={"system_id": str(system)},
+    )
+    assert page.status_code == 200
+    assert len(page.json()) == 3
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_does_not_promote_uncalibrated_ph_or_tds(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    assert await save_automatic(test_session_factory, system) == "created"
+    async with test_session_factory() as session:
+        sensors = list((await session.execute(select(Sensor))).scalars().all())
+    assert all(s.sensor_type not in (SensorType.PH, SensorType.TDS) for s in sensors)
+    assert len(await readings(test_session_factory)) == 3
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_does_not_reenable_disabled_registered_sensor(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    disabled = await sensor_id(
+        client, system, "water_temp_c",
+        sensor_type="water_temperature", measurement_type="temperature",
+        unit="°C", is_enabled=False,
+    )
+    assert await save_automatic(test_session_factory, system) == "created"
+    async with test_session_factory() as session:
+        sensor = await session.get(Sensor, disabled)
+        assert not sensor.is_enabled
+        all_sensors = (await session.execute(select(Sensor))).scalars().all()
+    assert len(all_sensors) == 3
+    saved = await readings(test_session_factory)
+    assert len(saved) == 2
+    assert all(row.sensor_id != disabled for row in saved)
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_does_not_save_failed_sensor_reads(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    packet = {
+        **PACKET,
+        "raw_readings": {
+            "water_temperature": {
+                "status": "disconnected", "error_code": "ds18b20_disconnected",
+            },
+        },
+    }
+    assert await save_automatic(test_session_factory, system, packet) == "created"
+    async with test_session_factory() as session:
+        all_sensors = list((await session.execute(select(Sensor))).scalars().all())
+    assert len(all_sensors) == 2
+    assert len(await readings(test_session_factory)) == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_discovery_ph_stays_pending_until_real_verification(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    packet = {**PACKET, "ph_calibrated": True, "ph": 5.5}
+    assert await save_automatic(test_session_factory, system, packet) == "created"
+    async with test_session_factory() as session:
+        ph = (
+            await session.execute(select(Sensor).where(Sensor.sensor_type == SensorType.PH))
+        ).scalar_one()
+        assert ph.calibration_status == CalibrationStatus.PENDING
+        ph_id = ph.id
+    assert len(await readings(test_session_factory)) == 3
+
+    async with test_session_factory() as session:
+        ph = await session.get(Sensor, ph_id)
+        ph.calibration_status = CalibrationStatus.VERIFIED
+        await set_calibration(session, ph_id)
+
+    packet = {**packet, "sequence": 6, "uptime_ms": 18000}
+    assert await save_automatic(test_session_factory, system, packet) == "created"
+    async with test_session_factory() as session:
+        ph_readings = list((
+            await session.execute(select(SensorReading).where(SensorReading.sensor_id == ph_id))
+        ).scalars().all())
+    assert len(ph_readings) == 1
+    assert float(ph_readings[0].value_numeric) == 5.5

@@ -147,4 +147,57 @@ describe('ESP32 telemetry dashboard panel', () => {
     render(<Esp32TelemetryPanel systemId="system-1" />)
     expect(await screen.findByText(/No ESP32 packets saved/)).toBeInTheDocument()
   })
+  it('shows active current sensor values without exposing IDs or diagnostics', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-current', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z', packet,
+    }])
+
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
+    expect(screen.getByText('Sensor data active')).toBeInTheDocument()
+    expect(screen.getAllByText('Active').length).toBe(3)
+    expect(screen.queryByText('esp32-devkit-01')).not.toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Sequence' }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByText('Raw USB readings and sensor status'))
+      .not.toBeInTheDocument()
+    expect(screen.queryByText('Not calibrated')).not.toBeInTheDocument()
+  })
+
+  it('does not show old packet readings as active', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:02:00Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-stale', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z', packet,
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText(/No active sensor readings available/))
+      .toBeInTheDocument()
+    expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
+  })
+
+  it('hides a measurement if raw diagnostics reported a failed read', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'row-fault', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: {
+        ...packet,
+        raw_readings: {
+          water_temperature: {
+            status: 'disconnected' as const,
+            value: null,
+            error_code: 'sensor_missing',
+          },
+        },
+      },
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('Sensor data active')).toBeInTheDocument()
+    expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+  })
+
 })

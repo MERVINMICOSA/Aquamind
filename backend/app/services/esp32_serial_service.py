@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.esp32_telemetry import Esp32Telemetry
 from app.models.system import AquaponicsSystem
 from app.schemas.esp32_telemetry import Esp32SensorPacket
-from app.services.esp32_sensor_bridge import build_sensor_readings
+from app.services.esp32_sensor_bridge import build_sensor_readings, discover_sensor_mapping
 from app.services.alert_service import process_sensor_reading
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,7 @@ async def persist_esp32_packet(
     expected_device_id: str,
     packet: Esp32SensorPacket,
     sensor_mapping: Mapping[str, UUID] | None = None,
+    auto_discover_sensors: bool = False,
 ) -> str:
     """Atomically store packet, opt-in mapped readings, and threshold alerts.
 
@@ -147,12 +148,19 @@ async def persist_esp32_packet(
             # packet/reading/alert changes are committed together.
             await session.flush()
 
-            if sensor_mapping:
+            mapping = (
+                await discover_sensor_mapping(
+                    session, system_id=system_id, packet=packet,
+                )
+                if auto_discover_sensors
+                else sensor_mapping
+            )
+            if mapping:
                 readings = await build_sensor_readings(
                     session,
                     system_id=system_id,
                     packet=packet,
-                    sensor_mapping=sensor_mapping,
+                    sensor_mapping=mapping,
                     received_at=received_at,
                 )
                 session.add_all(readings)
@@ -191,6 +199,7 @@ class Esp32SerialWorker:
         serial_factory: Callable | None = None,
         reconnect_seconds: float = 2.0,
         sensor_mapping: Mapping[str, UUID] | None = None,
+        auto_discover_sensors: bool = False,
     ) -> None:
         if not SERIAL_PORT_PATTERN.fullmatch(port):
             raise ValueError("ESP32_SERIAL_PORT must be a /dev/ttyUSB*, /dev/ttyACM*, or /dev/serial/by-id|by-path/ device")
@@ -206,6 +215,7 @@ class Esp32SerialWorker:
         self.reconnect_seconds = reconnect_seconds
         self.serial_factory = serial_factory
         self.sensor_mapping = dict(sensor_mapping or {})
+        self.auto_discover_sensors = auto_discover_sensors
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
 
@@ -275,6 +285,7 @@ class Esp32SerialWorker:
                                 expected_device_id=self.device_id,
                                 packet=packet,
                                 sensor_mapping=self.sensor_mapping,
+                                auto_discover_sensors=self.auto_discover_sensors,
                             )
                         except Exception:
                             logger.exception("ESP32 serial packet could not be persisted")

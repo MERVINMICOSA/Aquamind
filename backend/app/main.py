@@ -23,7 +23,6 @@ from app.hardware.sensor_runtime import (
     build_hardware_sensor_runtime,
 )
 from app.services.esp32_serial_service import Esp32SerialWorker
-from app.services.esp32_sensor_bridge import parse_sensor_mapping
 from uuid import UUID
 
 from app.api.esp32_telemetry import router as esp32_telemetry_router
@@ -211,18 +210,15 @@ async def lifespan(
             if not settings.ESP32_SYSTEM_ID:
                 raise ValueError("ESP32_SYSTEM_ID must be set for USB ingestion")
 
-            sensor_mapping = (
-                parse_sensor_mapping(settings.ESP32_SENSOR_MAP_JSON)
-                if settings.ESP32_SENSOR_BRIDGE_ENABLED
-                else {}
-            )
+            # No manual sensor UUID or hardware-identifier configuration:
+            # provision exact device-field sensor records automatically.
             esp32_serial_worker = Esp32SerialWorker(
                 session_factory=SessionFactory,
                 system_id=UUID(settings.ESP32_SYSTEM_ID),
                 device_id=settings.ESP32_DEVICE_ID,
                 port=settings.ESP32_SERIAL_PORT,
                 baudrate=settings.ESP32_SERIAL_BAUDRATE,
-                sensor_mapping=sensor_mapping,
+                auto_discover_sensors=settings.ESP32_SENSOR_BRIDGE_ENABLED,
             )
             await esp32_serial_worker.start()
             app.state.esp32_serial_worker = esp32_serial_worker
