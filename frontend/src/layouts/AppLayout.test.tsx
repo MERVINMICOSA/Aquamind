@@ -124,10 +124,8 @@ describe(
           of [
             'Dashboard',
             'Sensors',
-            'Actuators',
             'Feeding',
-            'Refill',
-            'Automation',
+            'Water Flow',
             'Alerts',
             'Settings',
           ]
