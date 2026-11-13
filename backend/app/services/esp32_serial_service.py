@@ -12,7 +12,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Callable
+from typing import Callable, Mapping
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.esp32_telemetry import Esp32Telemetry
 from app.models.system import AquaponicsSystem
 from app.schemas.esp32_telemetry import Esp32SensorPacket
+from app.services.esp32_sensor_bridge import build_sensor_readings
+from app.services.alert_service import process_sensor_reading
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +100,12 @@ async def persist_esp32_packet(
     system_id: UUID,
     expected_device_id: str,
     packet: Esp32SensorPacket,
+    sensor_mapping: Mapping[str, UUID] | None = None,
 ) -> str:
-    """Atomically store a packet; exact retries never duplicate history.
+    """Atomically store packet, opt-in mapped readings, and threshold alerts.
 
+    Retries cannot create additional readings for an archived packet identity.
+    No sensor-triggered actuator automation runs from ESP32 ingestion.
     Returns 'created', 'duplicate', 'conflict', or 'unavailable'.
     """
     if packet.device_id != expected_device_id:
@@ -127,15 +132,39 @@ async def persist_esp32_packet(
         if row is not None:
             return "duplicate" if row.packet == contents else "conflict"
 
+        received_at = datetime.now(timezone.utc)
         session.add(Esp32Telemetry(
             system_id=system_id,
             device_id=packet.device_id,
             sequence=packet.sequence,
             uptime_ms=packet.uptime_ms,
             packet=contents,
-            received_at=datetime.now(timezone.utc),
+            received_at=received_at,
         ))
+
         try:
+            # Uniqueness is checked before deriving any readings. The
+            # packet/reading/alert changes are committed together.
+            await session.flush()
+
+            if sensor_mapping:
+                readings = await build_sensor_readings(
+                    session,
+                    system_id=system_id,
+                    packet=packet,
+                    sensor_mapping=sensor_mapping,
+                    received_at=received_at,
+                )
+                session.add_all(readings)
+                await session.flush()
+
+                for reading in readings:
+                    await process_sensor_reading(
+                        session,
+                        reading,
+                        commit=False,
+                    )
+
             await session.commit()
             return "created"
         except IntegrityError:
@@ -161,6 +190,7 @@ class Esp32SerialWorker:
         baudrate: int = 115200,
         serial_factory: Callable | None = None,
         reconnect_seconds: float = 2.0,
+        sensor_mapping: Mapping[str, UUID] | None = None,
     ) -> None:
         if not SERIAL_PORT_PATTERN.fullmatch(port):
             raise ValueError("ESP32_SERIAL_PORT must be a /dev/ttyUSB*, /dev/ttyACM*, or /dev/serial/by-id|by-path/ device")
@@ -175,6 +205,7 @@ class Esp32SerialWorker:
         self.baudrate = baudrate
         self.reconnect_seconds = reconnect_seconds
         self.serial_factory = serial_factory
+        self.sensor_mapping = dict(sensor_mapping or {})
         self._task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
 
@@ -243,6 +274,7 @@ class Esp32SerialWorker:
                                 system_id=self.system_id,
                                 expected_device_id=self.device_id,
                                 packet=packet,
+                                sensor_mapping=self.sensor_mapping,
                             )
                         except Exception:
                             logger.exception("ESP32 serial packet could not be persisted")
