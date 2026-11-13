@@ -80,6 +80,13 @@ class Settings:
     ESP32_DEVICE_ID: str = os.getenv("ESP32_DEVICE_ID", "")
     ESP32_SYSTEM_ID: str = os.getenv("ESP32_SYSTEM_ID", "")
 
+    # Opt-in conversion to registered sensor_readings; archived packets still
+    # work with the bridge disabled. Each field maps to an existing sensor UUID.
+    ESP32_SENSOR_BRIDGE_ENABLED: bool = _env_bool(
+        "ESP32_SENSOR_BRIDGE_ENABLED", default=False
+    )
+    ESP32_SENSOR_MAP_JSON: str = os.getenv("ESP32_SENSOR_MAP_JSON", "{}")
+
     # ========================================================
     # DATABASE
     # ========================================================

@@ -23,6 +23,7 @@ from app.hardware.sensor_runtime import (
     build_hardware_sensor_runtime,
 )
 from app.services.esp32_serial_service import Esp32SerialWorker
+from app.services.esp32_sensor_bridge import parse_sensor_mapping
 from uuid import UUID
 
 from app.api.esp32_telemetry import router as esp32_telemetry_router
@@ -203,15 +204,25 @@ async def lifespan(
         # ====================================================
         # It is independent of HARDWARE_ENABLED and does not
         # give ESP32 packets access to the actuator executor.
+        if settings.ESP32_SENSOR_BRIDGE_ENABLED and not settings.ESP32_SERIAL_ENABLED:
+            raise ValueError("ESP32 sensor bridge requires ESP32_SERIAL_ENABLED=true")
+
         if settings.ESP32_SERIAL_ENABLED:
             if not settings.ESP32_SYSTEM_ID:
                 raise ValueError("ESP32_SYSTEM_ID must be set for USB ingestion")
+
+            sensor_mapping = (
+                parse_sensor_mapping(settings.ESP32_SENSOR_MAP_JSON)
+                if settings.ESP32_SENSOR_BRIDGE_ENABLED
+                else {}
+            )
             esp32_serial_worker = Esp32SerialWorker(
                 session_factory=SessionFactory,
                 system_id=UUID(settings.ESP32_SYSTEM_ID),
                 device_id=settings.ESP32_DEVICE_ID,
                 port=settings.ESP32_SERIAL_PORT,
                 baudrate=settings.ESP32_SERIAL_BAUDRATE,
+                sensor_mapping=sensor_mapping,
             )
             await esp32_serial_worker.start()
             app.state.esp32_serial_worker = esp32_serial_worker
