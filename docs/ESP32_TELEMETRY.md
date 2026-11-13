@@ -1,5 +1,13 @@
 # ESP32 over USB serial → Raspberry Pi 5 → AquaMind
 
+> **Optional registered sensor ingestion:** The original USB packet archive is
+> unchanged. To additionally map validated packet fields into the Sensors
+> page, historical charts, and threshold alerts, see
+> [ESP32 sensor bridge setup](ESP32_SENSOR_BRIDGE.md). The bridge is disabled
+> until explicit field-to-sensor mappings are configured and enabled. It does
+> not control any pump, relay, or feeding servo.
+
+
 **AquaMind now receives ESP32 JSON through the Pi's USB port, not HTTP.**
 The old device-token HTTP POST has been removed. The dashboard still reads
 persisted records through authenticated API GET requests.
