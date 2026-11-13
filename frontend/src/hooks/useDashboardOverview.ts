@@ -8,6 +8,8 @@ import {
   listSystems,
   loadSystemDashboardOverview,
 } from '../services/dashboardService'
+import { listEsp32Telemetry } from '../services/esp32TelemetryService'
+import { mergeDashboardEsp32Archive } from '../utils/esp32DashboardReadings'
 
 import type {
   AquaponicsSystem,
@@ -15,6 +17,7 @@ import type {
   DashboardAlert,
   DashboardSensor,
   DashboardSensorReading,
+  SystemDashboardOverview,
 } from '../types/dashboard'
 
 
@@ -245,84 +248,66 @@ export function useDashboardOverview() {
       selectedSystemId
 
     let active = true
+    let busy = false
+    let hasLoaded = false
 
+    // The main dashboard reads both persistent database sources:
+    // registered sensor readings and the independent ESP32 packet archive.
+    // Poll so new USB data reaches cards without browser refresh.
+    async function loadOverview(): Promise<void> {
+      if (busy) return
+      busy = true
+      if (!hasLoaded) setOverviewStatus('loading')
 
-    async function loadOverview():
-      Promise<void> {
       try {
-        setOverviewStatus(
-          'loading',
-        )
+        const [registeredResult, esp32Result] = await Promise.allSettled([
+          loadSystemDashboardOverview(systemId),
+          listEsp32Telemetry(systemId),
+        ])
+        if (!active) return
 
-        const result =
-          await loadSystemDashboardOverview(
-            systemId,
-          )
+        // If one backend resource fails, a valid saved packet archive may
+        // still populate the dashboard. Never silently invent measurements.
+        if (
+          registeredResult.status === 'rejected' &&
+          (esp32Result.status === 'rejected' || esp32Result.value.length === 0)
+        ) throw new Error('Neither dashboard data source was available')
 
-        if (!active) {
-          return
-        }
+        const registered: SystemDashboardOverview =
+          registeredResult.status === 'fulfilled'
+            ? registeredResult.value
+            : { sensors: [], actuators: [], alerts: [], latestReadings: [] }
+        const savedPackets =
+          esp32Result.status === 'fulfilled' ? esp32Result.value : []
+        const result = mergeDashboardEsp32Archive(registered, savedPackets, systemId)
 
-        setSensors(
-          result.sensors,
-        )
-
-        setActuators(
-          result.actuators,
-        )
-
-        setAlerts(
-          result.alerts,
-        )
-
-        setLatestReadings(
-          result.latestReadings,
-        )
-
-        setErrorMessage(
-          null,
-        )
-
-        setOverviewStatus(
-          'ready',
-        )
+        setSensors(result.sensors)
+        setActuators(result.actuators)
+        setAlerts(result.alerts)
+        setLatestReadings(result.latestReadings)
+        setErrorMessage(null)
+        setOverviewStatus('ready')
+        hasLoaded = true
       } catch {
-        if (!active) {
-          return
+        if (!active) return
+        if (!hasLoaded) {
+          setSensors([])
+          setActuators([])
+          setAlerts([])
+          setLatestReadings([])
+          setOverviewStatus('error')
         }
-
-        setSensors(
-          [],
-        )
-
-        setActuators(
-          [],
-        )
-
-        setAlerts(
-          [],
-        )
-
-        setLatestReadings(
-          [],
-        )
-
-        setErrorMessage(
-          'Unable to load the selected system overview.',
-        )
-
-        setOverviewStatus(
-          'error',
-        )
+        setErrorMessage('Unable to refresh dashboard readings. Previously loaded measurements may be stale.')
+      } finally {
+        busy = false
       }
     }
 
-
     void loadOverview()
-
-
+    const timer = window.setInterval(() => { void loadOverview() }, 10000)
     return () => {
       active = false
+      window.clearInterval(timer)
     }
   }, [
     selectedSystemId,
