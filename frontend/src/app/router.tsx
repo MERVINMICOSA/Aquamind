@@ -36,6 +36,7 @@ import {
 import {
   SensorsPage,
 } from '../pages/SensorsPage'
+import { SensorHistoryPage } from '../pages/SensorHistoryPage'
 import {
   SettingsPage,
 } from '../pages/SettingsPage'
@@ -99,6 +100,8 @@ export function AppRoutes() {
               <SensorDetailPage />
             }
           />
+
+          <Route path="history" element={<SensorHistoryPage />} />
 
 
           <Route path="actuators" element={<Navigate to="/water-flow" replace />} />
