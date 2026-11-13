@@ -17,6 +17,7 @@ export function listEsp32Telemetry(
 
 
 export type Esp32HistoryField =
+  | 'all'
   | 'water_temp_c'
   | 'ph'
   | 'tds_ppm'
@@ -31,8 +32,6 @@ export interface Esp32HistorySearchFilters {
   field: Esp32HistoryField
   startAt?: string
   endAt?: string
-  minValue?: number
-  maxValue?: number
   offset?: number
   limit?: number
 }
@@ -56,8 +55,6 @@ export function searchEsp32Telemetry(
   })
   if (filters.startAt) params.set('start_at', filters.startAt)
   if (filters.endAt) params.set('end_at', filters.endAt)
-  if (filters.minValue !== undefined) params.set('min_value', String(filters.minValue))
-  if (filters.maxValue !== undefined) params.set('max_value', String(filters.maxValue))
   return apiRequest<Esp32HistorySearchResult>(
     `esp32/telemetry/search?${params.toString()}`,
   )
