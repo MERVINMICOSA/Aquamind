@@ -19,9 +19,6 @@ import {
   useDashboardSensorTrend,
 } from '../hooks/useDashboardSensorTrend'
 
-import {
-  useDashboardActuatorActivity,
-} from '../hooks/useDashboardActuatorActivity'
 
 import {
   DashboardPage,
@@ -52,13 +49,6 @@ vi.mock(
 )
 
 
-vi.mock(
-  '../hooks/useDashboardActuatorActivity',
-  () => ({
-    useDashboardActuatorActivity:
-      vi.fn(),
-  }),
-)
 
 
 const SYSTEM = {
@@ -210,12 +200,12 @@ describe(
         expect(screen.getByText('DEMO PREVIEW — sample data only')).toBeInTheDocument()
         expect(screen.getByRole('heading', { name: 'Latest sensor readings' })).toBeInTheDocument()
         expect(screen.getByRole('heading', { name: 'Sensor trends' })).toBeInTheDocument()
-        expect(screen.getByRole('heading', { name: 'Recent actuator activity' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Continuous water flow' })).toBeInTheDocument()
         expect(screen.getByText('6 of 6 reporting')).toBeInTheDocument()
         expect(screen.getByRole('heading', { name: 'Fish tank pH' })).toBeInTheDocument()
         expect(screen.getByText('7.1')).toBeInTheDocument()
         expect(vi.mocked(useDashboardSensorTrend)).toHaveBeenLastCalledWith(null)
-        expect(vi.mocked(useDashboardActuatorActivity)).toHaveBeenLastCalledWith(null)
+        expect(screen.getByRole('link', { name: 'View the water flow guide' })).toHaveAttribute('href', '/water-flow')
 
         fireEvent.click(screen.getByRole('button', { name: 'Exit demo preview' }))
         expect(screen.getByText('No aquaponics system configured')).toBeInTheDocument()
@@ -287,7 +277,7 @@ describe(
 
         expect(
           screen.getByText(
-            'Actuators',
+            'Sensors',
             {
               selector: 'dt',
             },
@@ -309,11 +299,6 @@ describe(
           ),
         ).toBeInTheDocument()
 
-        expect(
-          screen.getByText(
-            'of 0 enabled',
-          ),
-        ).toBeInTheDocument()
 
         expect(
           screen.getByText(
