@@ -393,8 +393,15 @@ describe(
         expect(
           screen.getByText(
             'On time',
+            { selector: '.telemetry-timing' },
           ),
         ).toBeInTheDocument()
+
+        expect(
+          screen.getByText('On time', {
+            selector: '.sensor-overview-summary span',
+          }).parentElement,
+        ).toHaveTextContent('1')
 
 
         expect(
