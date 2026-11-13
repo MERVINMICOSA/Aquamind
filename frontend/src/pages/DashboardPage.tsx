@@ -45,6 +45,8 @@ import {
   useDashboardSensorTrend,
 } from '../hooks/useDashboardSensorTrend'
 
+import { ESP32_ARCHIVE_PREFIX } from '../utils/esp32DashboardReadings'
+
 // ============================================================
 // SENSOR TYPE DISPLAY
 // ============================================================
@@ -586,6 +588,15 @@ export function DashboardPage() {
 
 
               <section className="sensor-telemetry">
+                {dashboard.latestReadings.some(
+                  (reading) => reading.id.startsWith(ESP32_ARCHIVE_PREFIX),
+                ) && (
+                  <p className="page-description">
+                    Some measurements come directly from saved ESP32 USB packets.
+                    These archive values are display-only; they have not been
+                    registered as calibrated sensor database readings.
+                  </p>
+                )}
                 <div className="sensor-telemetry__heading">
                   <div>
                     <p className="eyebrow">
@@ -800,8 +811,9 @@ export function DashboardPage() {
 
                                     <dd>
                                       {
-                                        reading
-                                          .source
+                                        reading.id.startsWith(ESP32_ARCHIVE_PREFIX)
+                                          ? 'ESP32 USB archive'
+                                          : reading.source
                                       }
                                     </dd>
                                   </div>
