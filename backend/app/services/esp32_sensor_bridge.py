@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import (
     CalibrationStatus,
+    LocationType,
     MeasurementType,
     ReadingQuality,
     ReadingSource,
@@ -71,6 +72,71 @@ def parse_sensor_mapping(raw: str) -> dict[str, UUID]:
     if len(set(result.values())) != len(result):
         raise ValueError("Each ESP32 sensor field must map to a distinct sensor ID")
     return result
+
+
+# The website does not need UUID mapping or manual hardware identifiers. The
+# stable association is internal and derived from the trusted USB device and
+# named firmware field, never guessed from sensor type alone.
+AUTO_SENSOR_NAMES = {
+    "water_temp_c": "Water temperature",
+    "ph": "pH",
+    "tds_ppm": "TDS",
+    "water_level_pct": "Water level",
+    "water_height_cm": "Water height",
+    "distance_cm": "Ultrasonic distance",
+    "air_temp_c": "Air temperature",
+    "humidity_pct": "Humidity",
+}
+
+
+async def discover_sensor_mapping(
+    session: AsyncSession,
+    *,
+    system_id: UUID,
+    packet: Esp32SensorPacket,
+) -> dict[str, UUID]:
+    """Register only fields with actual readings; return their internal IDs.
+
+    Sensor rows are provisioned in the packet transaction. Never reuse a
+    similarly typed sensor with a different device or a simulated sensor.
+    Existing disabled/deleted sensor records remain disabled/deleted.
+    """
+    mapping: dict[str, UUID] = {}
+    for field, (kind, measurement, unit, raw_key) in FIELD_SPECS.items():
+        value = getattr(packet, field)
+        if value is None or not math.isfinite(value):
+            continue
+        raw = getattr(packet.raw_readings, raw_key, None) if packet.raw_readings else None
+        if raw is not None and raw.status != "ok":
+            continue
+
+        identifier = f"{packet.device_id}:{field}"
+        result = await session.execute(
+            select(Sensor).where(Sensor.hardware_identifier == identifier)
+        )
+        sensor = result.scalar_one_or_none()
+        if sensor is None:
+            sensor = Sensor(
+                system_id=system_id,
+                name=AUTO_SENSOR_NAMES[field],
+                sensor_type=kind,
+                measurement_type=measurement,
+                location_type=(
+                    LocationType.AMBIENT
+                    if kind in (SensorType.AIR_TEMPERATURE, SensorType.HUMIDITY)
+                    else LocationType.SYSTEM
+                ),
+                unit=unit,
+                hardware_identifier=identifier,
+                is_simulated=False,
+                is_enabled=True,
+                sampling_interval_seconds=10,
+                calibration_status=CalibrationStatus.PENDING,
+            )
+            session.add(sensor)
+            await session.flush()
+        mapping[field] = sensor.id
+    return mapping
 
 
 async def _verified_ph_tds_calibration(
