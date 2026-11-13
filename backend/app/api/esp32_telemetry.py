@@ -27,7 +27,7 @@ router = APIRouter(
 # unverified estimates; deliberately omit them from normal history search.
 # Historical pH/TDS values are device claims, never server calibration proof.
 HistoricalField = Literal[
-    "water_temp_c", "ph", "tds_ppm", "water_level_pct",
+    "all", "water_temp_c", "ph", "tds_ppm", "water_level_pct",
     "water_height_cm", "distance_cm", "air_temp_c", "humidity_pct",
 ]
 
@@ -38,7 +38,7 @@ HistoricalField = Literal[
 )
 async def search_esp32_telemetry(
     system_id: UUID,
-    field: HistoricalField,
+    field: HistoricalField = "all",
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     min_value: float | None = Query(default=None, allow_inf_nan=False),
@@ -51,6 +51,7 @@ async def search_esp32_telemetry(
 
     The timestamp filter applies to the server's packet-receipt time; firmware
     does not supply a reliable UTC clock in v1. Date range is [start, end).
+    "all" returns complete archived packets, with missing fields preserved.
     Results are deterministically ordered newest first, with a total count.
     """
     for name, value in (("start_at", start_at), ("end_at", end_at)):
@@ -70,20 +71,26 @@ async def search_esp32_telemetry(
             detail="min_value must be less than or equal to max_value",
         )
 
-    # JSON path comes from a strict Literal allowlist, not user-supplied SQL.
-    numeric = Esp32Telemetry.packet[field].as_float()
-    filters = [
-        Esp32Telemetry.system_id == system_id,
-        numeric.is_not(None),
-    ]
+    # "all" shows all stored packets for the system, including packets where
+    # some probes returned null. Never put a user-supplied SQL key into JSON.
+    filters = [Esp32Telemetry.system_id == system_id]
+    numeric = None
+    if field != "all":
+        numeric = Esp32Telemetry.packet[field].as_float()
+        filters.append(numeric.is_not(None))
     if start_at is not None:
         filters.append(Esp32Telemetry.received_at >= start_at.astimezone(timezone.utc))
     if end_at is not None:
         filters.append(Esp32Telemetry.received_at < end_at.astimezone(timezone.utc))
-    if min_value is not None:
+    if min_value is not None and numeric is not None:
         filters.append(numeric >= min_value)
-    if max_value is not None:
+    if max_value is not None and numeric is not None:
         filters.append(numeric <= max_value)
+    if field == "all" and (min_value is not None or max_value is not None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Value filters require an individual sensor field",
+        )
 
     total = (
         await session.execute(

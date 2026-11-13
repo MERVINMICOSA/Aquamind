@@ -67,23 +67,46 @@ beforeEach(() => {
   })
 })
 
-describe('searchable ESP32 history', () => {
-  it('loads archived measurements with a trend and no internal device IDs', async () => {
+describe('simplified ESP32 history', () => {
+  it('defaults to All data and displays all sensor columns without extra filters', async () => {
     mount()
     expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Sensor History' })).toBeInTheDocument()
-    expect(screen.getByTestId('history-chart')).toHaveTextContent('1 chart points')
-    expect(screen.getByText(/1 matching saved readings/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Sensor')).toHaveValue('all')
+    expect(screen.getByRole('columnheader', { name: 'Water temperature' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Air temperature' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Humidity' })).toBeInTheDocument()
+    expect(screen.getByText('84.60 %')).toBeInTheDocument()
+    expect(screen.getAllByText('Not calibrated')).toHaveLength(2)
+    expect(screen.getByText(/1 matching saved packets/)).toBeInTheDocument()
+    expect(screen.getByText(/Showing history for/)).toHaveTextContent(SYSTEM.name)
+    expect(screen.queryByLabelText('Aquaponics system')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Minimum value')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Maximum value')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('history-chart')).not.toBeInTheDocument()
     expect(screen.queryByText('esp32-devkit-01')).not.toBeInTheDocument()
-    expect(vi.mocked(searchEsp32Telemetry)).toHaveBeenCalledWith(
+    expect(searchEsp32Telemetry).toHaveBeenCalledWith(
       expect.objectContaining({
-        systemId: SYSTEM.id, field: 'water_temp_c',
-        limit: 25, offset: 0,
+        systemId: SYSTEM.id, field: 'all', limit: 25, offset: 0,
       }),
     )
   })
 
-  it('searches selected field, dates and numeric ranges on the backend', async () => {
+  it('uses the active system automatically even when it is not first', async () => {
+    vi.mocked(listSystems).mockResolvedValue([
+      { ...SYSTEM, id: 'old-system', name: 'Inactive', is_active: false },
+      SYSTEM,
+    ])
+    mount()
+    expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
+    expect(searchEsp32Telemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ systemId: SYSTEM.id }),
+    )
+    expect(screen.queryByRole('combobox', { name: 'Aquaponics system' }))
+      .not.toBeInTheDocument()
+  })
+
+  it('still shows an individual sensor chart and date-range filtering', async () => {
     mount()
     await screen.findByText('27.56 °C')
     const user = userEvent.setup()
@@ -94,24 +117,21 @@ describe('searchable ESP32 history', () => {
     fireEvent.change(screen.getByLabelText('To date'), {
       target: { value: '2026-11-14' },
     })
-    await user.type(screen.getByLabelText('Minimum value'), '70')
-    await user.type(screen.getByLabelText('Maximum value'), '90')
     await user.click(screen.getByRole('button', { name: 'Search readings' }))
 
     await waitFor(() => {
-      expect(vi.mocked(searchEsp32Telemetry)).toHaveBeenLastCalledWith(
+      expect(searchEsp32Telemetry).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          field: 'humidity_pct', minValue: 70, maxValue: 90,
-          limit: 25, offset: 0,
-          startAt: expect.any(String),
-          endAt: expect.any(String),
+          field: 'humidity_pct', limit: 25, offset: 0,
+          startAt: expect.any(String), endAt: expect.any(String),
         }),
       )
     })
     expect(await screen.findByText('84.60 %')).toBeInTheDocument()
+    expect(screen.getByTestId('history-chart')).toHaveTextContent('1 chart points')
   })
 
-  it('rejects reversed date filters before making a search request', async () => {
+  it('rejects reversed date filters without sending a new request', async () => {
     mount()
     await screen.findByText('27.56 °C')
     fireEvent.change(screen.getByLabelText('From date'), {
@@ -125,7 +145,7 @@ describe('searchable ESP32 history', () => {
     expect(searchEsp32Telemetry).toHaveBeenCalledTimes(1)
   })
 
-  it('pages through all saved matching records', async () => {
+  it('pages through all saved packets rather than individual sensor columns', async () => {
     vi.mocked(searchEsp32Telemetry).mockResolvedValue({
       items: [ITEM], total: 52, limit: 25, offset: 0,
     })
@@ -135,30 +155,63 @@ describe('searchable ESP32 history', () => {
     await user.click(screen.getByRole('button', { name: 'Next page' }))
     await waitFor(() => {
       expect(searchEsp32Telemetry).toHaveBeenCalledWith(
-        expect.objectContaining({ offset: 25, limit: 25 }),
+        expect.objectContaining({ field: 'all', offset: 25, limit: 25 }),
       )
     })
     expect(screen.getByText('Page 2 of 3')).toBeInTheDocument()
   })
 
-  it('labels pH history as unverified device-reported diagnostic data', async () => {
-    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
-      items: [{
-        ...ITEM,
-        packet: { ...ITEM.packet, ph_calibrated: true, ph: 7.1 },
-      }], total: 1, limit: 25, offset: 0,
-    })
+  it('clears date filters and returns to All data', async () => {
     mount()
     await screen.findByText('27.56 °C')
     const user = userEvent.setup()
-    await user.selectOptions(screen.getByLabelText('Sensor'), 'ph')
+    await user.selectOptions(screen.getByLabelText('Sensor'), 'air_temp_c')
+    fireEvent.change(screen.getByLabelText('From date'), {
+      target: { value: '2026-11-01' },
+    })
     await user.click(screen.getByRole('button', { name: 'Search readings' }))
-    expect(await screen.findByText('7.10 pH')).toBeInTheDocument()
-    expect(screen.getByRole('note')).toHaveTextContent('not independently verified')
-    expect(screen.getByText('Device reported — not independently verified')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Sensor')).toHaveValue('all')
+      expect(screen.getByLabelText('From date')).toHaveValue('')
+      expect(searchEsp32Telemetry).toHaveBeenLastCalledWith(
+        expect.objectContaining({ field: 'all' }),
+      )
+    })
   })
 
-  it('renders an honest empty state when a search has no saved matches', async () => {
+  it('marks device-reported pH as unverified in the combined table', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{ ...ITEM, packet: { ...ITEM.packet, ph_calibrated: true, ph: 7.1 } }],
+      total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    expect(await screen.findByText('7.10 pH')).toBeInTheDocument()
+    expect(screen.getByRole('note')).toHaveTextContent('not independently')
+    expect(screen.getByRole('columnheader', { name: 'pH (device reported)' }))
+      .toBeInTheDocument()
+  })
+
+  it('shows read faults in the combined view, without inventing readings', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{
+        ...ITEM,
+        packet: {
+          ...ITEM.packet,
+          raw_readings: {
+            water_temperature: {
+              status: 'disconnected' as const, error_code: 'sensor_missing',
+            },
+          },
+        },
+      }], total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    expect(await screen.findByText('Sensor read: disconnected')).toBeInTheDocument()
+    expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+  })
+
+  it('renders an honest empty state when no matching saved packets exist', async () => {
     vi.mocked(searchEsp32Telemetry).mockResolvedValue({
       items: [], total: 0, limit: 25, offset: 0,
     })

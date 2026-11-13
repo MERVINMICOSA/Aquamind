@@ -138,3 +138,61 @@ async def test_search_restricts_system_and_does_not_modify_archive(client, test_
     assert empty.status_code == 200
     assert empty.json()["total"] == 0
     assert empty.json()["items"] == []
+
+
+
+async def test_all_data_returns_every_archived_packet_including_missing_measurements(
+    client, test_session,
+):
+    system_id, other_id = await populate_history(test_session)
+    url = "/api/v1/esp32/telemetry/search"
+    first = await client.get(url, params={
+        "system_id": str(system_id), "field": "all", "limit": 2,
+    })
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 5
+    assert [entry["packet"]["sequence"] for entry in first.json()["items"]] == [4, 3]
+
+    second = await client.get(url, params={
+        "system_id": str(system_id), "field": "all", "limit": 2, "offset": 2,
+    })
+    assert second.status_code == 200, second.text
+    assert [entry["packet"]["sequence"] for entry in second.json()["items"]] == [2, 1]
+    # The missing water-temperature value must not remove an entire packet.
+    assert second.json()["items"][0]["packet"]["water_temp_c"] is None
+
+    other = await client.get(url, params={
+        "system_id": str(other_id), "field": "all",
+    })
+    assert other.status_code == 200
+    assert other.json()["total"] == 1
+    assert other.json()["items"][0]["packet"]["water_temp_c"] == 88.0
+
+
+async def test_all_data_filters_dates_and_rejects_numeric_range_without_sensor(
+    client, test_session,
+):
+    system_id, _ = await populate_history(test_session)
+    url = "/api/v1/esp32/telemetry/search"
+    response = await client.get(url, params={
+        "system_id": str(system_id),
+        "field": "all",
+        "start_at": "2026-11-02T00:00:00Z",
+        "end_at": "2026-11-04T00:00:00Z",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 2
+    assert [entry["packet"]["sequence"] for entry in response.json()["items"]] == [2, 1]
+    invalid = await client.get(url, params={
+        "system_id": str(system_id), "field": "all", "min_value": 25.0,
+    })
+    assert invalid.status_code == 422
+
+
+async def test_omitted_field_defaults_to_all_packets(client, test_session):
+    system_id, _ = await populate_history(test_session)
+    response = await client.get("/api/v1/esp32/telemetry/search", params={
+        "system_id": str(system_id),
+    })
+    assert response.status_code == 200
+    assert response.json()["total"] == 5
