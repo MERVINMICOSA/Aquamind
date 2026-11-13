@@ -737,3 +737,102 @@ async def test_resolved_alert_does_not_block_new_alert(
 
     assert AlertStatus.RESOLVED in statuses
     assert AlertStatus.ACTIVE in statuses
+
+# ============================================================
+# CALIBRATION-DEPENDENT ALERT SAFETY
+# ============================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status",
+    [
+        CalibrationStatus.PENDING,
+        CalibrationStatus.REJECTED,
+        CalibrationStatus.EXPIRED,
+    ],
+)
+async def test_unverified_ph_never_creates_threshold_alert(test_session, status):
+    system = await create_system(test_session)
+    sensor = await create_sensor(test_session, system)
+    sensor.calibration_status = status
+    await test_session.commit()
+
+    await create_threshold(test_session)
+    reading = await create_reading(test_session, sensor, value=5.0)
+
+    assert await process_sensor_reading(test_session, reading) is None
+    assert await get_sensor_alerts(test_session, sensor) == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_sensor_does_not_create_threshold_alert(test_session):
+    system = await create_system(test_session)
+    sensor = await create_sensor(test_session, system)
+    sensor.is_enabled = False
+    await test_session.commit()
+
+    await create_threshold(test_session)
+    reading = await create_reading(test_session, sensor, value=5.0)
+
+    assert await process_sensor_reading(test_session, reading) is None
+    assert await get_sensor_alerts(test_session, sensor) == []
+
+
+@pytest.mark.asyncio
+async def test_unverified_tds_never_creates_threshold_alert(test_session):
+    system = await create_system(test_session)
+    sensor = await create_sensor(
+        test_session,
+        system,
+        sensor_type=SensorType.TDS,
+        measurement_type=MeasurementType.TDS,
+    )
+    sensor.calibration_status = CalibrationStatus.PENDING
+
+    threshold = AlertThreshold(
+        sensor_type=SensorType.TDS,
+        measurement_type=MeasurementType.TDS,
+        warning_low=100,
+        warning_high=700,
+        critical_low=50,
+        critical_high=1000,
+        cooldown_seconds=60,
+        enabled=True,
+        updated_at=datetime.now(timezone.utc),
+    )
+    test_session.add(threshold)
+    await test_session.commit()
+
+    reading = await create_reading(test_session, sensor, value=1500)
+    assert await process_sensor_reading(test_session, reading) is None
+    assert await get_sensor_alerts(test_session, sensor) == []
+
+
+@pytest.mark.asyncio
+async def test_verified_tds_still_generates_threshold_alert(test_session):
+    system = await create_system(test_session)
+    sensor = await create_sensor(
+        test_session,
+        system,
+        sensor_type=SensorType.TDS,
+        measurement_type=MeasurementType.TDS,
+    )
+    threshold = AlertThreshold(
+        sensor_type=SensorType.TDS,
+        measurement_type=MeasurementType.TDS,
+        warning_low=100,
+        warning_high=700,
+        critical_low=50,
+        critical_high=1000,
+        cooldown_seconds=60,
+        enabled=True,
+        updated_at=datetime.now(timezone.utc),
+    )
+    test_session.add(threshold)
+    await test_session.commit()
+
+    reading = await create_reading(test_session, sensor, value=1500)
+    alert = await process_sensor_reading(test_session, reading)
+    assert alert is not None
+    assert alert.severity == AlertSeverity.CRITICAL

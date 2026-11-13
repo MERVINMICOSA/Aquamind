@@ -26,7 +26,6 @@ import type {
 import {
   buildDashboardDemo,
   buildDemoSensorTrend,
-  buildDemoActuatorEvents,
   buildDemoEsp32Packets,
 } from '../data/dashboardDemo'
 
@@ -45,10 +44,6 @@ import {
 import {
   useDashboardSensorTrend,
 } from '../hooks/useDashboardSensorTrend'
-
-import {
-  useDashboardActuatorActivity,
-} from '../hooks/useDashboardActuatorActivity'
 
 // ============================================================
 // SENSOR TYPE DISPLAY
@@ -196,38 +191,6 @@ export function DashboardPage() {
     : realTrend
 
 
-  const [
-    requestedActivityActuatorId,
-    setRequestedActivityActuatorId,
-  ] = useState<string | null>(
-    null,
-  )
-
-
-  const activityActuator =
-    dashboard.actuators.find(
-      (actuator) =>
-        actuator.id ===
-        requestedActivityActuatorId,
-    ) ??
-    dashboard.actuators[0] ??
-    null
-
-
-  const realActivity =
-    useDashboardActuatorActivity(
-      demoPreview ? null : activityActuator?.id ?? null,
-    )
-
-  const activity = demoPreview
-    ? {
-        events: buildDemoActuatorEvents(activityActuator?.id ?? null, nowMs),
-        status: 'ready' as const,
-        errorMessage: null,
-      }
-    : realActivity
-
-
   // ==========================================================
   // RESOURCE COUNTS
   // ==========================================================
@@ -237,13 +200,6 @@ export function DashboardPage() {
     dashboard.sensors.filter(
       (sensor) =>
         sensor.is_enabled,
-    ).length
-
-
-  const enabledActuatorCount =
-    dashboard.actuators.filter(
-      (actuator) =>
-        actuator.is_enabled,
     ).length
 
 
@@ -289,7 +245,7 @@ export function DashboardPage() {
           <p className="page-description">
             Monitor AquaMind water quality,
             environmental conditions,
-            automation, and alerts.
+            sensor history, and alerts.
           </p>
         </div>
 
@@ -335,7 +291,7 @@ export function DashboardPage() {
           <div>
             <strong>DEMO PREVIEW — sample data only</strong>
             <p>
-              These readings, device packets, alerts and actuator events are
+              These readings, device packets, and alerts are
               fictional layout examples. No hardware is connected, no database
               records are written and no pumps are controlled.
             </p>
@@ -579,28 +535,6 @@ export function DashboardPage() {
                           {
                             dashboard
                               .sensors
-                              .length
-                          }{' '}
-                          enabled
-                        </span>
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        Actuators
-                      </dt>
-
-                      <dd>
-                        <strong>
-                          {enabledActuatorCount}
-                        </strong>
-
-                        <span>
-                          of{' '}
-                          {
-                            dashboard
-                              .actuators
                               .length
                           }{' '}
                           enabled
@@ -992,169 +926,27 @@ export function DashboardPage() {
                 ) : null}
               </section>
 
-              {/* =============================================
-                  ACTUATOR ACTIVITY
-                  ============================================= */}
-
-
-              <section className="dashboard-activity-panel">
-                <div className="dashboard-activity-panel__heading">
-                  <div>
-                    <p className="eyebrow">
-                      Persisted History
-                    </p>
-
-                    <h2>
-                      Recent actuator activity
-                    </h2>
-
-                    <p>
-                      Persisted software events for the
-                      selected actuator. These records do
-                      not confirm physical actuator execution
-                      or connection.
-                    </p>
-                  </div>
-
-
-                  {dashboard.actuators.length >
-                    0 && (
-                    <div className="dashboard-activity-selector">
-                      <label
-                        htmlFor="dashboard-activity-actuator"
-                      >
-                        Activity actuator
-                      </label>
-
-                      <select
-                        id="dashboard-activity-actuator"
-                        value={
-                          activityActuator?.id ??
-                          ''
-                        }
-                        onChange={(event) => {
-                          setRequestedActivityActuatorId(
-                            event.target.value,
-                          )
-                        }}
-                      >
-                        {dashboard.actuators.map(
-                          (actuator) => (
-                            <option
-                              key={actuator.id}
-                              value={actuator.id}
-                            >
-                              {actuator.actuator_type.replaceAll(
-                                '_',
-                                ' ',
-                              )}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                    </div>
-                  )}
+              <section className="surface-panel">
+                <div>
+                  <p className="eyebrow">External circulation</p>
+                  <h2>Continuous water flow</h2>
+                  <p>
+                    The external circulation pump is independent of AquaMind.
+                    The ESP32 collects measurements; the website does not
+                    turn circulation pumps or relays on or off.
+                  </p>
+                  <p>
+                    Fish tank → external pump → upper lettuce raft → gravity-fed
+                    lower lettuce raft → gravity return to fish tank.
+                  </p>
+                  <p>
+                    Sensor readings do not prove the pump is running.
+                    Actual flow needs independent physical verification.
+                  </p>
+                  <Link to="/water-flow" className="sensor-detail-link">
+                    View the water flow guide
+                  </Link>
                 </div>
-
-
-                {activityActuator === null ? (
-                  <div className="dashboard-activity-empty">
-                    <strong>
-                      No actuator available for activity
-                    </strong>
-
-                    <span>
-                      Configure an actuator before persisted
-                      software event history can be shown.
-                    </span>
-                  </div>
-                ) : activity.status ===
-                  'loading' ? (
-                  <div
-                    role="status"
-                    className="dashboard-activity-message"
-                  >
-                    Loading persisted actuator activity...
-                  </div>
-                ) : activity.status ===
-                  'error' ? (
-                  <div
-                    role="alert"
-                    className="dashboard-activity-message dashboard-activity-message--error"
-                  >
-                    {activity.errorMessage}
-                  </div>
-                ) : activity.status ===
-                  'ready' &&
-                  activity.events.length ===
-                    0 ? (
-                  <div className="dashboard-activity-empty">
-                    <strong>
-                      No persisted software events
-                    </strong>
-
-                    <span>
-                      No actuator events were returned for
-                      this actuator.
-                    </span>
-                  </div>
-                ) : activity.status ===
-                  'ready' ? (
-                  <>
-                    <div className="dashboard-activity-list">
-                      {activity.events
-                        .slice(0, 5)
-                        .map((event) => (
-                          <article
-                            className="dashboard-activity-item"
-                            key={event.id}
-                          >
-                            <div>
-                              <strong>
-                                {event.command_type.replaceAll(
-                                  '_',
-                                  ' ',
-                                )}
-                              </strong>
-
-                              <span>
-                                {event.trigger_source.replaceAll(
-                                  '_',
-                                  ' ',
-                                )}
-                              </span>
-                            </div>
-
-                            <div className="dashboard-activity-item__meta">
-                              <span className="dashboard-activity-status">
-                                {event.status.replaceAll(
-                                  '_',
-                                  ' ',
-                                )}
-                              </span>
-
-                              <time dateTime={event.started_at}>
-                                {formatReadingTime(
-                                  event.started_at,
-                                )}
-                              </time>
-                            </div>
-                          </article>
-                        ))}
-                    </div>
-
-                    {!demoPreview && (
-                      <Link
-                        className="dashboard-activity-link"
-                        to={`/actuators/${encodeURIComponent(
-                          activityActuator.id,
-                        )}`}
-                      >
-                        View full actuator history
-                      </Link>
-                    )}
-                  </>
-                ) : null}
               </section>
 
             </>

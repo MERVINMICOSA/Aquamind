@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { listSystems } from '../services/dashboardService'
-import { ALERT_HISTORY_PAGE_SIZE, loadAlertHistoryPage } from '../services/alertService'
+import { ALERT_HISTORY_PAGE_SIZE, loadAlertHistoryPage, updateAlertLifecycle } from '../services/alertService'
 import type { AlertHistoryPage } from '../services/alertService'
-import type { AquaponicsSystem } from '../types/dashboard'
+import type { AquaponicsSystem, DashboardAlert } from '../types/dashboard'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
 
@@ -16,6 +16,12 @@ export function useAlertsOverview() {
     revision: number
     status: LoadStatus
     data: AlertHistoryPage | null
+  } | null>(null)
+
+  const [mutation, setMutation] = useState<{
+    systemId: string
+    status: 'saving' | 'error'
+    error: string | null
   } | null>(null)
 
   useEffect(() => {
@@ -58,7 +64,48 @@ export function useAlertsOverview() {
   const historyStatus = currentHistory?.status ?? 'loading'
   const hasNext = currentHistory?.data?.hasNext ?? false
 
+  const mutationStatus = mutation?.systemId === selection.systemId
+    ? mutation.status : 'idle'
+  const mutationError = mutation?.systemId === selection.systemId
+    ? mutation.error : null
+
+  async function changeAlertStatus(
+    alert: DashboardAlert,
+    status: 'acknowledged' | 'resolved',
+    reason?: string,
+  ): Promise<boolean> {
+    const systemId = selection.systemId
+    if (systemId === null || alert.system_id !== systemId || mutationStatus === 'saving') {
+      return false
+    }
+    setMutation({ systemId, status: 'saving', error: null })
+    try {
+      await updateAlertLifecycle(alert.id, status, reason)
+      // Refresh only the current selected page, never a different system's data.
+      setSelection(current => current.systemId === systemId
+        ? { ...current, revision: current.revision + 1 }
+        : current)
+      setMutation(null)
+      return true
+    } catch {
+      setMutation({
+        systemId,
+        status: 'error',
+        error: status === 'acknowledged'
+          ? 'Unable to acknowledge this alert.'
+          : 'Unable to resolve this alert.',
+      })
+      return false
+    }
+  }
+
   return {
+    mutationStatus,
+    mutationError,
+    acknowledgeAlert: (alert: DashboardAlert) =>
+      changeAlertStatus(alert, 'acknowledged'),
+    resolveAlert: (alert: DashboardAlert, reason: string) =>
+      changeAlertStatus(alert, 'resolved', reason),
     systems,
     systemsStatus,
     selectedSystemId: selection.systemId,

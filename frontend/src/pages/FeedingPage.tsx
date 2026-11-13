@@ -282,7 +282,7 @@ export function FeedingPage() {
         .length === 0
     ) {
       setFormError(
-        'An actuator is required.',
+        'A configured fish feeder is required.',
       )
 
       return
@@ -554,6 +554,46 @@ export function FeedingPage() {
         )}
       </header>
 
+      <section className="surface-panel" aria-labelledby="feeding-purpose">
+        <div>
+          <p className="eyebrow">Automatic fish feeding</p>
+          <h2 id="feeding-purpose">ESP32 servo feeder</h2>
+          <p>
+            AquaMind keeps the tilapia feeding schedule, fish population
+            records, feeder calibration, and feeding history. The planned
+            dispenser uses an ESP32-controlled servo and is entirely
+            separate from the continuously running external water pump.
+          </p>
+          <p>
+            Set up a fish_feeder device assigned to the fish tank and
+            calibrate how much feed the dispenser releases. Feeding
+            calculations also require population data and a safe maximum
+            feed amount and runtime.
+          </p>
+          <p>
+            Hardware integration is not complete: the current Raspberry Pi
+            USB serial receiver accepts ESP32 sensor packets but does not
+            yet send servo-feed commands or receive feeder acknowledgments.
+            Saving or enabling a schedule does not mean food was dispensed.
+          </p>
+        </div>
+        <div>
+          <h3>Servo feeder requirements</h3>
+          <ul>
+            <li>Servo, suitable food dispenser, and an independent regulated servo power supply.</li>
+            <li>ESP32 servo signal output and a shared electrical ground with the servo supply.</li>
+            <li>Calibrated amount per dispensing cycle, with a safe maximum portion and motion limits.</li>
+            <li>Authenticated or locally restricted commands, one-time sequence IDs, and confirmation of command handling.</li>
+            <li>A safe default position after reboot or USB disconnection, with no automatic replay of feed commands.</li>
+          </ul>
+          <p>
+            A command acknowledgment confirms only what the controller
+            reports; physical feed delivery requires a separate sensor
+            or observation. Do not power the servo directly from an ESP32 GPIO pin.
+          </p>
+        </div>
+      </section>
+
 
       {overview.systemsStatus ===
         'loading' && (
@@ -690,8 +730,8 @@ export function FeedingPage() {
                   overview.actuators.length ===
                     0 && (
                   <p>
-                    No configured actuator is
-                    available for this system.
+                    No fish feeder is configured
+                    for this system.
                   </p>
                 )}
               </div>
@@ -774,7 +814,7 @@ export function FeedingPage() {
                       'feeding-schedule-actuator'
                     }
                   >
-                    Actuator
+                    Fish feeder
                   </label>
 
                   <select
@@ -813,7 +853,7 @@ export function FeedingPage() {
                             .actuatorId
                         }
                       >
-                        Current actuator
+                        Current fish feeder
                         unavailable —{' '}
                         {
                           currentEditor
@@ -1070,7 +1110,7 @@ export function FeedingPage() {
                               (grams)
                             </th>
                             <th>
-                              Actuator ID
+                              Feeder device ID
                             </th>
 
                             {canManageSchedules && (

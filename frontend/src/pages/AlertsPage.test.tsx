@@ -1,13 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { listSystems } from '../services/dashboardService'
-import { loadAlertHistoryPage } from '../services/alertService'
+import { loadAlertHistoryPage, updateAlertLifecycle } from '../services/alertService'
 import type { AlertHistoryPage } from '../services/alertService'
 import type { AquaponicsSystem, DashboardAlert } from '../types/dashboard'
 import { AlertsPage } from './AlertsPage'
 
 vi.mock('../services/dashboardService', () => ({ listSystems: vi.fn() }))
-vi.mock('../services/alertService', () => ({ loadAlertHistoryPage: vi.fn(), ALERT_HISTORY_PAGE_SIZE: 50 }))
+vi.mock('../services/alertService', () => ({ loadAlertHistoryPage: vi.fn(), updateAlertLifecycle: vi.fn(), ALERT_HISTORY_PAGE_SIZE: 50 }))
 
 const systems: AquaponicsSystem[] = ['Alpha', 'Beta'].map((name, index) => ({
   id: `s${index}`, name, description: null, timezone: 'UTC', is_active: true,
@@ -32,6 +32,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(listSystems).mockResolvedValue([...systems].reverse())
   vi.mocked(loadAlertHistoryPage).mockResolvedValue(page)
+  vi.mocked(updateAlertLifecycle).mockResolvedValue(alert)
 })
 
 it('selects the first alphabetical system and renders persisted metadata, nulls and zero', async () => {
@@ -47,7 +48,7 @@ it('selects the first alphabetical system and renders persisted metadata, nulls 
   expect(within(table).getAllByText('Not recorded')).toHaveLength(7)
   expect(within(table).getByText(new Date(alert.created_at).toLocaleString())).toBeInTheDocument()
   expect(screen.getByText('Alert history is persisted application data, not hardware evidence.')).toBeInTheDocument()
-  expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Previous', 'Next'])
+  expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Acknowledge', 'Previous', 'Next'])
   expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
 })
@@ -144,4 +145,44 @@ it('hides old data when returning to a previously loaded system', async () => {
   expect(screen.getByText('Loading alert history...')).toBeInTheDocument()
   await act(async () => pending.resolve(page))
   expect(screen.getByRole('table')).toBeInTheDocument()
+})
+
+
+it('acknowledges an active alert using the backend and refreshes its history', async () => {
+  render(<AlertsPage />)
+  await screen.findByText('Persisted test alert')
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }))
+  await waitFor(() => {
+    expect(updateAlertLifecycle).toHaveBeenCalledExactlyOnceWith('a', 'acknowledged', undefined)
+    expect(loadAlertHistoryPage).toHaveBeenCalledTimes(2)
+  })
+  expect(screen.getByText(/On this page: 1 active/)).toBeInTheDocument()
+})
+
+it('requires a reason before resolving an acknowledged alert', async () => {
+  vi.mocked(loadAlertHistoryPage).mockResolvedValue({
+    ...page,
+    alerts: [{ ...alert, status: 'acknowledged' }],
+  })
+  render(<AlertsPage />)
+  await screen.findByRole('button', { name: 'Resolve' })
+  fireEvent.click(screen.getByRole('button', { name: 'Resolve' }))
+  expect(screen.getByLabelText('Resolution reason')).toBeInTheDocument()
+
+  fireEvent.change(screen.getByLabelText('Resolution reason'), {
+    target: { value: 'pH checked and stabilised' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm resolution' }))
+  await waitFor(() => expect(updateAlertLifecycle)
+    .toHaveBeenCalledExactlyOnceWith('a', 'resolved', 'pH checked and stabilised'))
+  await waitFor(() => expect(loadAlertHistoryPage).toHaveBeenCalledTimes(2))
+})
+
+it('reports a failed acknowledge without fabricating a state change', async () => {
+  vi.mocked(updateAlertLifecycle).mockRejectedValueOnce(new Error('Unavailable'))
+  render(<AlertsPage />)
+  await screen.findByRole('button', { name: 'Acknowledge' })
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to acknowledge this alert.')
+  expect(loadAlertHistoryPage).toHaveBeenCalledTimes(1)
 })

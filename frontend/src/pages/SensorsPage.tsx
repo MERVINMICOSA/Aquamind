@@ -15,6 +15,10 @@ import {
 } from '../hooks/useSensorsOverview'
 
 import {
+  Esp32TelemetryPanel,
+} from '../components/dashboard/Esp32TelemetryPanel'
+
+import {
   getTelemetryTimeliness,
 } from '../utils/telemetryTimeliness'
 
@@ -133,13 +137,32 @@ export function SensorsPage() {
     ).length
 
 
-  const reportingSensorCount =
+  // A historical reading is not evidence of a currently reporting device.
+  // Only enabled sensors with a recent persisted reading count as on time.
+  const onTimeSensorCount =
     sensorsOverview.sensors.filter(
-      (sensor) =>
-        latestReadingBySensorId.has(
-          sensor.id,
-        ),
+      (sensor) => {
+        if (!sensor.is_enabled) {
+          return false
+        }
+
+        const reading =
+          latestReadingBySensorId.get(
+            sensor.id,
+          )
+
+        return reading !== undefined &&
+          getTelemetryTimeliness(
+            reading.recorded_at,
+            sensor.sampling_interval_seconds,
+            nowMs,
+          ).status === 'on_time'
+      },
     ).length
+
+  const needsReviewSensorCount =
+    enabledSensorCount -
+    onTimeSensorCount
 
 
   return (
@@ -198,6 +221,58 @@ export function SensorsPage() {
           </div>
         )}
       </header>
+
+      <section
+        className="surface-panel"
+        aria-labelledby="sensors-purpose-heading"
+      >
+        <div>
+          <p className="eyebrow">
+            Page guide
+          </p>
+
+          <h2 id="sensors-purpose-heading">
+            What is Sensors for?
+          </h2>
+
+          <p>
+            Check each registered sensor, its last saved
+            measurement, calibration state, data source,
+            and reading freshness. Open a sensor to
+            inspect its stored history.
+          </p>
+        </div>
+
+        <div>
+          <h3>
+            What does it need?
+          </h3>
+
+          <ul>
+            <li>
+              An aquaponics system and sensor records
+              registered in the AquaMind backend.
+            </li>
+            <li>
+              Working sensor wiring, an ESP32 connected
+              to the Raspberry Pi, and incoming USB
+              telemetry for physical measurements.
+            </li>
+            <li>
+              Verified pH and TDS calibration before
+              treating those measurements as validated
+              water-quality data.
+            </li>
+          </ul>
+
+          <p>
+            ESP32 USB packets are saved separately from
+            registered sensor readings. Receiving a
+            packet does not automatically populate this
+            sensor list or authorize automatic control.
+          </p>
+        </div>
+      </section>
 
 
       {sensorsOverview.systemsStatus ===
@@ -282,25 +357,32 @@ export function SensorsPage() {
 
             <div>
               <span>
-                Enabled
+                On time
               </span>
 
               <strong>
-                {enabledSensorCount}
+                {onTimeSensorCount}
               </strong>
             </div>
 
 
             <div>
               <span>
-                Reporting
+                Needs review
               </span>
 
               <strong>
-                {reportingSensorCount}
+                {needsReviewSensorCount}
               </strong>
             </div>
           </section>
+
+          <p className="page-description">
+            On time and needs review count enabled sensors
+            using their last saved timestamp and expected
+            sampling interval. They do not prove a physical
+            device is connected; disabled sensors are excluded.
+          </p>
 
 
           {sensorsOverview.sensorsStatus ===
@@ -617,6 +699,10 @@ export function SensorsPage() {
               )}
             </div>
           )}
+
+          <Esp32TelemetryPanel
+            systemId={sensorsOverview.selectedSystem.id}
+          />
         </>
       )}
     </section>

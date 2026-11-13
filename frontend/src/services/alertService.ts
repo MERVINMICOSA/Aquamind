@@ -26,3 +26,26 @@ export async function loadAlertHistoryPage(
     offset: normalizedOffset,
   }
 }
+
+
+/**
+ * Alert status is a server-owned lifecycle. The backend supplies the
+ * authenticated acknowledger and timestamps; the browser supplies only
+ * the requested transition and a reason for resolution.
+ */
+export async function updateAlertLifecycle(
+  alertId: string,
+  status: 'acknowledged' | 'resolved',
+  resolutionReason?: string,
+): Promise<DashboardAlert> {
+  return apiRequest<DashboardAlert>(
+    `alerts/${encodeURIComponent(alertId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status,
+        ...(status === 'resolved' ? { resolution_reason: resolutionReason } : {}),
+      }),
+    },
+  )
+}

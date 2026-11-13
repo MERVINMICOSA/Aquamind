@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   useAlertsOverview,
 } from '../hooks/useAlertsOverview'
@@ -24,6 +25,18 @@ function formatTimestamp(
 export function AlertsPage() {
   const overview =
     useAlertsOverview()
+  const [resolutionDraft, setResolutionDraft] = useState<{
+    alertId: string
+    reason: string
+    error: string | null
+  } | null>(null)
+
+  const activeOnPage = overview.alerts.filter(
+    (alert) => alert.status === 'active',
+  ).length
+  const acknowledgedOnPage = overview.alerts.filter(
+    (alert) => alert.status === 'acknowledged',
+  ).length
 
   return (
     <section className="section-page alerts-page">
@@ -38,7 +51,9 @@ export function AlertsPage() {
           </h1>
 
           <p className="page-description">
-            Review persisted alert records for the selected system.
+            Review water-quality warnings, sensor faults, and saved alert
+            history for the selected system. Acknowledging or resolving an
+            alert records your review; it does not operate the water pump.
           </p>
         </div>
 
@@ -56,12 +71,10 @@ export function AlertsPage() {
                   overview.selectedSystemId ??
                   ''
                 }
-                onChange={
-                  (event) =>
-                    overview.selectSystem(
-                      event.target.value,
-                    )
-                }
+                onChange={(event) => {
+                  setResolutionDraft(null)
+                  overview.selectSystem(event.target.value)
+                }}
               >
                 {
                   overview.systems.map(
@@ -80,6 +93,33 @@ export function AlertsPage() {
           )
         }
       </header>
+
+      <section className="surface-panel" aria-labelledby="alerts-guide-heading">
+        <div>
+          <p className="eyebrow">Page guide</p>
+          <h2 id="alerts-guide-heading">How to use Alerts</h2>
+          <p>
+            Review the alert severity, cause, associated sensor, and recorded
+            value. Check the Sensors page and the physical aquaponics system
+            before taking corrective action. Acknowledge when reviewed;
+            resolve only after the condition has been addressed and record
+            what was done.
+          </p>
+          <h3>What does this page need?</h3>
+          <ul>
+            <li>A configured AquaMind system with persisted sensor readings.</li>
+            <li>Appropriate enabled alert thresholds and verified readings
+              where calibration matters, especially pH and TDS.</li>
+            <li>An operator who can inspect equipment and confirm the
+              actual condition before resolving an alert.</li>
+          </ul>
+          <p>
+            Raw ESP32 USB packets alone do not create threshold alerts.
+            The external circulation pump cannot be started or stopped here.
+            Notifications outside the website are not implied.
+          </p>
+        </div>
+      </section>
 
       {
         overview.systemsStatus ===
@@ -153,6 +193,21 @@ export function AlertsPage() {
               Alert history is persisted application data, not hardware evidence.
             </p>
 
+            {overview.historyStatus === 'ready' && (
+              <p className="page-description">
+                On this page: {activeOnPage} active, {acknowledgedOnPage} acknowledged,
+                {' '}{overview.alerts.length - activeOnPage - acknowledgedOnPage} resolved.
+                Counts describe only the currently loaded history page, not every
+                alert in the system.
+              </p>
+            )}
+
+            {overview.mutationError !== null && (
+              <div className="status-message status-message--error" role="alert">
+                {overview.mutationError}
+              </div>
+            )}
+
             {
               overview.historyStatus ===
                 'loading' && (
@@ -204,6 +259,7 @@ export function AlertsPage() {
                                 'Trigger value',
                                 'Acknowledgment',
                                 'Resolution',
+                                'Review actions',
                               ].map(
                                 (label) => (
                                   <th key={label}>
@@ -327,6 +383,96 @@ export function AlertsPage() {
                                         }
                                       </dd>
                                     </dl>
+                                  </td>
+
+                                  <td>
+                                    {alert.status === 'active' && (
+                                      <button
+                                        type="button"
+                                        className="secondary-button"
+                                        disabled={overview.mutationStatus === 'saving'}
+                                        onClick={() => {
+                                          void overview.acknowledgeAlert(alert)
+                                        }}
+                                      >
+                                        Acknowledge
+                                      </button>
+                                    )}
+
+                                    {alert.status === 'acknowledged' && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="secondary-button"
+                                          disabled={overview.mutationStatus === 'saving'}
+                                          onClick={() => setResolutionDraft({
+                                            alertId: alert.id,
+                                            reason: '',
+                                            error: null,
+                                          })}
+                                        >
+                                          Resolve
+                                        </button>
+
+                                        {resolutionDraft !== null && resolutionDraft.alertId === alert.id && (
+                                          <form
+                                            onSubmit={(event) => {
+                                              event.preventDefault()
+                                              const reason = resolutionDraft.reason.trim()
+                                              if (!reason) {
+                                                setResolutionDraft({
+                                                  ...resolutionDraft,
+                                                  error: 'Describe the corrective action first.',
+                                                })
+                                                return
+                                              }
+                                              void overview.resolveAlert(alert, reason)
+                                                .then((saved) => {
+                                                  if (saved) setResolutionDraft(null)
+                                                })
+                                            }}
+                                          >
+                                            <label htmlFor={`alert-resolution-${alert.id}`}>
+                                              Resolution reason
+                                            </label>
+                                            <input
+                                              id={`alert-resolution-${alert.id}`}
+                                              type="text"
+                                              maxLength={500}
+                                              required
+                                              value={resolutionDraft.reason}
+                                              disabled={overview.mutationStatus === 'saving'}
+                                              onChange={(event) => setResolutionDraft({
+                                                ...resolutionDraft,
+                                                reason: event.target.value,
+                                                error: null,
+                                              })}
+                                            />
+                                            {resolutionDraft.error && (
+                                              <p role="alert">{resolutionDraft.error}</p>
+                                            )}
+                                            <button
+                                              type="submit"
+                                              className="secondary-button"
+                                              disabled={overview.mutationStatus === 'saving'}
+                                            >
+                                              Confirm resolution
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="secondary-button"
+                                              onClick={() => setResolutionDraft(null)}
+                                            >
+                                              Cancel
+                                            </button>
+                                          </form>
+                                        )}
+                                      </>
+                                    )}
+
+                                    {alert.status === 'resolved' && (
+                                      <span>Resolved</span>
+                                    )}
                                   </td>
                                 </tr>
                               ),

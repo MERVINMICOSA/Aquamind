@@ -230,6 +230,24 @@ describe(
   'SettingsPage',
   () => {
     it(
+      'explains that saved keys do not control hardware or contain secrets',
+      () => {
+        render(<SettingsPage />)
+
+        expect(screen.getByRole('heading', {
+          name: 'What Settings is for',
+        })).toBeInTheDocument()
+        expect(screen.getByText(/These stored values are not/))
+          .toBeInTheDocument()
+        expect(screen.getByText(/Do not store/))
+          .toHaveTextContent('API secrets')
+        expect(screen.getByText(/external water-circulation pump operates independently/))
+          .toBeInTheDocument()
+      },
+    )
+
+
+    it(
       'renders persisted settings and changes systems through the overview hook',
       () => {
         mockedUseSettingsOverview
