@@ -554,6 +554,25 @@ export function FeedingPage() {
         )}
       </header>
 
+      <section className="surface-panel" aria-labelledby="feeding-purpose">
+        <div>
+          <p className="eyebrow">Separate from water circulation</p>
+          <h2 id="feeding-purpose">Tilapia feeding management</h2>
+          <p>
+            Feeding remains part of AquaMind. Manage feeding schedules,
+            fish population estimates, feeder calibration, and recorded
+            feeding events here. The external water-circulation pump is
+            not controlled from this page.
+          </p>
+          <p>
+            The existing scheduled feeding workflow requires a configured,
+            enabled fish feeder assigned to a tank, its feed-rate
+            calibration, and population data for its feeding calculations.
+            Saving a schedule does not confirm food was dispensed.
+          </p>
+        </div>
+      </section>
+
 
       {overview.systemsStatus ===
         'loading' && (
