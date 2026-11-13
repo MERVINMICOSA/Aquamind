@@ -124,6 +124,7 @@ describe(
           of [
             'Dashboard',
             'Sensors',
+            'History',
             'Feeding',
             'Water Flow',
             'Alerts',

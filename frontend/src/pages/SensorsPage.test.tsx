@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSensorsOverview } from '../hooks/useSensorsOverview'
 import { SensorsPage } from './SensorsPage'
@@ -40,7 +41,7 @@ describe('simplified Sensors page', () => {
       errorMessage: null,
     })
 
-    render(<SensorsPage />)
+    render(<MemoryRouter><SensorsPage /></MemoryRouter>)
     expect(screen.getByRole('heading', { name: 'Sensors' })).toBeInTheDocument()
     expect(screen.getByTestId('live-sensors')).toHaveTextContent('system-1 (simple)')
     expect(screen.getByText(/Only sensors with current/)).toBeInTheDocument()
@@ -55,7 +56,7 @@ describe('simplified Sensors page', () => {
       selectSystem: vi.fn(), sensors: [], latestReadings: [],
       systemsStatus: 'ready', sensorsStatus: 'idle', errorMessage: null,
     })
-    render(<SensorsPage />)
+    render(<MemoryRouter><SensorsPage /></MemoryRouter>)
     expect(screen.getByRole('heading', {
       name: 'No aquaponics system configured',
     })).toBeInTheDocument()

@@ -1,0 +1,105 @@
+.sensor-history-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 16px;
+  padding: 20px;
+  margin: 18px 0;
+}
+.sensor-history-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.sensor-history-filters input,
+.sensor-history-filters select {
+  min-height: 40px;
+  max-width: 100%;
+  padding: 9px 10px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #14231f);
+  border: 1px solid var(--color-border, #dce5e1);
+  border-radius: 9px;
+  font: inherit;
+}
+.sensor-history-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sensor-history-actions button,
+.sensor-history-pagination button {
+  padding: 10px 16px;
+  border: 1px solid var(--color-border, #bccdc7);
+  border-radius: 9px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #14231f);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sensor-history-actions button[type="submit"] {
+  background: #286d52;
+  border-color: #286d52;
+  color: white;
+}
+.sensor-history-actions button:disabled,
+.sensor-history-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+.sensor-history-results {
+  padding: 20px;
+  margin-top: 20px;
+}
+.sensor-history-results-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sensor-history-results-heading h2 {
+  margin: 0;
+}
+.sensor-history-warning {
+  border-left: 4px solid #b88723;
+  padding: 12px 16px;
+  background: #fff8e9;
+  color: #594015;
+  border-radius: 6px;
+}
+.sensor-history-chart {
+  margin: 18px 0 28px;
+}
+.sensor-history-table-wrap {
+  overflow-x: auto;
+}
+.sensor-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.sensor-history-table th,
+.sensor-history-table td {
+  padding: 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #dce5e1);
+}
+.sensor-history-table th {
+  font-size: .85rem;
+}
+.sensor-history-pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 18px 0 8px;
+}
+@media (max-width: 700px) {
+  .sensor-history-results { padding: 12px; }
+  .sensor-history-filters { grid-template-columns: 1fr; }
+  .sensor-history-pagination { justify-content: flex-start; }
+}
