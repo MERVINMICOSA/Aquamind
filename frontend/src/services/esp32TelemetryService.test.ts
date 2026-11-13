@@ -5,15 +5,13 @@ import { listEsp32Telemetry, searchEsp32Telemetry } from './esp32TelemetryServic
 vi.mock('./apiClient', () => ({ apiRequest: vi.fn() }))
 
 describe('ESP32 telemetry API', () => {
-  it('encodes sensor, date and value searches as URL parameters', async () => {
+  it('encodes All data and date-only history searches as URL parameters', async () => {
     vi.mocked(apiRequest).mockResolvedValue({ items: [], total: 0, offset: 25, limit: 25 })
     await searchEsp32Telemetry({
       systemId: 'system / test',
-      field: 'water_temp_c',
+      field: 'all',
       startAt: '2026-11-12T16:00:00.000Z',
       endAt: '2026-11-14T16:00:00.000Z',
-      minValue: 0,
-      maxValue: 29.5,
       limit: 25,
       offset: 25,
     })
@@ -21,11 +19,11 @@ describe('ESP32 telemetry API', () => {
     expect(url?.startsWith('esp32/telemetry/search?')).toBe(true)
     const params = new URLSearchParams(url?.split('?')[1])
     expect(params.get('system_id')).toBe('system / test')
-    expect(params.get('field')).toBe('water_temp_c')
+    expect(params.get('field')).toBe('all')
     expect(params.get('start_at')).toBe('2026-11-12T16:00:00.000Z')
     expect(params.get('end_at')).toBe('2026-11-14T16:00:00.000Z')
-    expect(params.get('min_value')).toBe('0')
-    expect(params.get('max_value')).toBe('29.5')
+    expect(params.has('min_value')).toBe(false)
+    expect(params.has('max_value')).toBe(false)
     expect(params.get('offset')).toBe('25')
   })
 
