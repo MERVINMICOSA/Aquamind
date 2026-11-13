@@ -6,6 +6,8 @@ import {
 import {
   loadSensorHistoryPage,
 } from '../services/sensorService'
+import { listEsp32Telemetry } from '../services/esp32TelemetryService'
+import { archivedTrendReadings, parseArchiveSensorId } from '../utils/esp32DashboardReadings'
 
 import type {
   DashboardSensorReading,
@@ -49,66 +51,47 @@ export function useDashboardSensorTrend(
       return
     }
 
-    const activeSensorId =
-      sensorId
+    const activeSensorId = sensorId
+    const archived = parseArchiveSensorId(activeSensorId)
+    let active = true
+    let busy = false
+    let loaded = false
 
-    let active =
-      true
+    async function loadTrend(): Promise<void> {
+      if (busy) return
+      busy = true
+      if (!loaded) setStatus('loading')
 
-
-    async function loadTrend():
-      Promise<void> {
       try {
-        setStatus(
-          'loading',
-        )
+        const next = archived
+          ? archivedTrendReadings(
+              await listEsp32Telemetry(archived.systemId, 50),
+              activeSensorId,
+            )
+          : (await loadSensorHistoryPage(activeSensorId, 0)).readings
 
-        setErrorMessage(
-          null,
-        )
-
-        const result =
-          await loadSensorHistoryPage(
-            activeSensorId,
-            0,
-          )
-
-        if (!active) {
-          return
-        }
-
-        setReadings(
-          result.readings,
-        )
-
-        setStatus(
-          'ready',
-        )
+        if (!active) return
+        setReadings(next)
+        setStatus('ready')
+        setErrorMessage(null)
+        loaded = true
       } catch {
-        if (!active) {
-          return
+        if (!active) return
+        if (!loaded) {
+          setReadings([])
+          setStatus('error')
         }
-
-        setReadings(
-          [],
-        )
-
-        setErrorMessage(
-          'Unable to load sensor reading history.',
-        )
-
-        setStatus(
-          'error',
-        )
+        setErrorMessage('Unable to refresh sensor reading history.')
+      } finally {
+        busy = false
       }
     }
 
-
     void loadTrend()
-
-
+    const timer = window.setInterval(() => { void loadTrend() }, 10000)
     return () => {
       active = false
+      window.clearInterval(timer)
     }
   }, [
     sensorId,

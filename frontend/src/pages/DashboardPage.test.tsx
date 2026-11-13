@@ -24,6 +24,8 @@ import {
 import {
   DashboardPage,
 } from './DashboardPage'
+import { mergeDashboardEsp32Archive } from '../utils/esp32DashboardReadings'
+import type { Esp32Telemetry } from '../types/esp32Telemetry'
 
 
 // Keep the separately tested ESP32 polling widget out of dashboard unit tests.
@@ -482,5 +484,60 @@ describe(
         ).toBeInTheDocument()
       },
     )
+
+    it('populates main dashboard cards from archived ESP32 database packets', () => {
+      const archived: Esp32Telemetry = {
+        id: 'saved-esp32-packet',
+        system_id: 'system-1',
+        received_at: '2026-09-06T07:59:55Z',
+        packet: {
+          type: 'aquamind_sensor',
+          schema_version: 1,
+          device_id: 'esp32-devkit-01',
+          sequence: 9,
+          uptime_ms: 25000,
+          water_temp_c: 27.56,
+          ph_voltage_v: 0.5,
+          ph_unverified_estimate: 17.45,
+          ph_calibrated: false,
+          ph: null,
+          tds_voltage_v: 2,
+          tds_unverified_ppm: 1249,
+          tds_calibrated: false,
+          tds_ppm: null,
+          distance_cm: null,
+          water_height_cm: null,
+          water_level_pct: null,
+          air_temp_c: 27.67,
+          humidity_pct: 84.6,
+        },
+      }
+      const derived = mergeDashboardEsp32Archive({
+        sensors: [],
+        actuators: [],
+        alerts: [],
+        latestReadings: [],
+      }, [archived], 'system-1')
+
+      vi.mocked(useDashboardOverview).mockReturnValue({
+        systems: [SYSTEM], selectedSystem: SYSTEM,
+        selectedSystemId: 'system-1',
+        ...derived,
+        systemsStatus: 'ready', overviewStatus: 'ready',
+        errorMessage: null, selectSystem: vi.fn(),
+      })
+
+      render(<MemoryRouter><DashboardPage /></MemoryRouter>)
+
+      expect(screen.getByText('3 of 3 reporting')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Water temperature' })).toBeInTheDocument()
+      expect(screen.getByText('27.56')).toBeInTheDocument()
+      expect(screen.getByText('27.67')).toBeInTheDocument()
+      expect(screen.getByText('84.6')).toBeInTheDocument()
+      expect(screen.getAllByText('ESP32 USB archive')).toHaveLength(3)
+      expect(screen.getByText(/Some measurements come directly/)).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'pH' })).not.toBeInTheDocument()
+    })
+
   },
 )
