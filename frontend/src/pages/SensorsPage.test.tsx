@@ -54,6 +54,19 @@ vi.mock(
 )
 
 
+vi.mock(
+  '../components/dashboard/Esp32TelemetryPanel',
+  () => ({
+    Esp32TelemetryPanel:
+      ({ systemId }: { systemId: string }) => (
+        <div data-testid="esp32-telemetry">
+          ESP32 telemetry for {systemId}
+        </div>
+      ),
+  }),
+)
+
+
 const SYSTEM = {
   id:
     'system-1',
@@ -247,6 +260,56 @@ describe(
           screen.getByText(
             'Yes',
           ),
+        ).toBeInTheDocument()
+      },
+    )
+
+
+    it(
+      'does not count stale saved telemetry as on-time reporting',
+      () => {
+        vi.mocked(
+          useSensorsOverview,
+        ).mockReturnValue({
+          systems: [SYSTEM],
+          selectedSystem: SYSTEM,
+          selectedSystemId: 'system-1',
+          sensors: [SENSOR],
+          latestReadings: [
+            {
+              id: 'old-reading',
+              sensor_id: 'sensor-1',
+              recorded_at: '2026-09-06T06:00:00Z',
+              value_numeric: 7.1,
+              unit: 'pH',
+              quality_status: 'good',
+              source: 'hardware',
+              sequence_number: 1,
+              created_at: '2026-09-06T06:00:01Z',
+            },
+          ],
+          systemsStatus: 'ready',
+          sensorsStatus: 'ready',
+          errorMessage: null,
+          selectSystem: vi.fn(),
+        })
+
+        renderSensorsPage()
+
+        expect(
+          screen.getByText('Needs review').parentElement,
+        ).toHaveTextContent('1')
+
+        expect(
+          screen.getByText('On time').parentElement,
+        ).toHaveTextContent('0')
+
+        expect(
+          screen.getByTestId('esp32-telemetry'),
+        ).toHaveTextContent('system-1')
+
+        expect(
+          screen.getByText(/Receiving a packet does not automatically/),
         ).toBeInTheDocument()
       },
     )
