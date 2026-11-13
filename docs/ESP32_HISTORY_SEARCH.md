@@ -9,18 +9,27 @@ relays, or stored sensor/packet values.
 Navigate to **History** in the sidebar, or choose **Search past readings**
 from Dashboard or Sensors.
 
-Choose the aquaponics system and sensor, optionally specify:
+The page automatically uses the active aquaponics system (or the first
+configured system if none is active), **without a system dropdown**.
 
-- **From date / To date:** local calendar dates; the end date is inclusive
-  on screen, converted to an exclusive next-day boundary for the API
-- **Minimum / Maximum value:** numeric sensor value filter
-- **Previous / Next page:** browse all matching archived packets, 25 at a time
+The sensor selector defaults to **All data**, showing one row per saved ESP32
+packet and a separate column for each measured sensor. Missing measurements,
+failed reads, and uncalibrated device values are labeled honestly. The wide
+table scrolls horizontally on small screens.
+
+Choose an individual sensor to view its measurements and per-page trend chart.
+There is no minimum/maximum value filter on the History page. You can use:
+
+- **From date / To date:** optional local calendar dates; the end date is
+  inclusive on screen, converted to an exclusive next-day boundary for the API
+- **Previous / Next page:** browse all matching saved packets, 25 at a time
 - **Refresh:** fetch current saved records without resetting the filters
 
 The first page automatically refreshes every 15 seconds, while older pages
-remain stable for review. The chart displays measurements on the **currently
-loaded page**; it does not imply that all months of data were loaded into
-your browser. The timestamp displayed is when the Raspberry Pi **received**
+remain stable for review. When one sensor is selected, its chart displays
+measurements on the **currently loaded page**, not every historical packet.
+The combined All data view avoids a single chart because pH, temperature,
+humidity, and other measurements have incompatible units. The timestamp displayed is when the Raspberry Pi **received**
 the packet, not the ESP32 measurement timestamp (protocol v1 has no UTC
 measurement time).
 
@@ -49,17 +58,18 @@ Query parameters:
 | Name | Description |
 | --- | --- |
 | `system_id` | Required aquaponics system UUID |
-| `field` | Required allowlisted ESP32 measurement name |
+| `field` | Optional: `all` (default) or an allowlisted ESP32 measurement field |
 | `start_at` | Optional timezone-aware ISO 8601 timestamp (inclusive) |
 | `end_at` | Optional timezone-aware ISO 8601 timestamp (exclusive) |
-| `min_value` | Optional numeric minimum |
-| `max_value` | Optional numeric maximum |
+| `min_value` / `max_value` | Legacy API-only filters for an individual sensor (not displayed in the website) |
 | `limit` | Per-page result count 1–100 (default 25) |
 | `offset` | Number of matching rows skipped (default 0) |
 
 The response contains `items`, `total`, `limit`, and `offset`.
 All constraints run in the database **before** pagination and remain
-scoped to the requested system. Date ranges must have timezone offsets
+scoped to the automatically selected system. In All data mode the result
+count refers to archived packets, even when an individual measurement is
+missing. Date ranges must have timezone offsets
 and be ordered correctly. Invalid fields are rejected.
 
 The original `/esp32/telemetry` endpoint stays unchanged for existing
