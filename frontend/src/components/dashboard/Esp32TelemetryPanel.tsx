@@ -171,7 +171,10 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
   const currentMetrics = packet === undefined ? [] : fields(packet).filter(
     ({ label, value }) => {
       if (value === 'No reading' || value === 'Not calibrated') return false
-      const diagnostic = packet.raw_readings?.[rawFieldForLabel[label]]
+      const rawKey = rawFieldForLabel[label]
+      const diagnostic = rawKey === undefined
+        ? undefined
+        : packet.raw_readings?.[rawKey]
       return diagnostic == null || diagnostic.status === 'ok'
     },
   )
