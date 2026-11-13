@@ -49,6 +49,24 @@ vi.mock(
 )
 
 
+vi.mock(
+  '../components/sensors/SensorCalibrationPanel',
+  () => ({
+    SensorCalibrationPanel: ({
+      sensorId,
+      calibrationStatus,
+    }: {
+      sensorId: string
+      calibrationStatus: string
+    }) => (
+      <div data-testid="calibration-panel">
+        Calibration for {sensorId}: {calibrationStatus}
+      </div>
+    ),
+  }),
+)
+
+
 const SENSOR = {
   id:
     'sensor-1',
@@ -313,6 +331,19 @@ describe(
             'SIM-PH-001',
           ),
         ).toBeInTheDocument()
+
+
+        expect(
+          screen.getByRole('heading', { name: 'What this sensor page shows' }),
+        ).toBeInTheDocument()
+
+        expect(
+          screen.getByTestId('calibration-panel'),
+        ).toHaveTextContent('sensor-1: pending')
+
+        expect(
+          screen.getByText(/Calibration required: this/),
+        ).toHaveTextContent('must not')
       },
     )
 

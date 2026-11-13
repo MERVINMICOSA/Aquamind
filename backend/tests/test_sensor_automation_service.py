@@ -13,6 +13,7 @@ from app.db.enums import (
     ActuatorState,
     ActuatorType,
     AutomationTriggerType,
+    CalibrationStatus,
     ControlMode,
     ExecutionStatus,
     LocationType,
@@ -138,6 +139,7 @@ async def create_sensor(
         is_simulated=True,
         is_enabled=True,
         sampling_interval_seconds=30,
+        calibration_status=CalibrationStatus.VERIFIED,
     )
 
     session.add(sensor)
@@ -698,3 +700,52 @@ async def test_non_good_reading_never_triggers_automation(
         event_result.scalars().all()
         == []
     )
+
+# ============================================================
+# CALIBRATION-DEPENDENT AUTOMATION SAFETY
+# ============================================================
+
+
+@pytest.mark.parametrize(
+    "calibration_status",
+    [
+        CalibrationStatus.PENDING,
+        CalibrationStatus.REJECTED,
+        CalibrationStatus.EXPIRED,
+    ],
+)
+async def test_unverified_ph_cannot_command_an_actuator(
+    test_session,
+    calibration_status,
+):
+    system = await create_system(test_session)
+    sensor = await create_sensor(test_session, system)
+    sensor.calibration_status = calibration_status
+    await test_session.commit()
+
+    reading = await create_reading(test_session, sensor)
+    await create_actuator(
+        test_session,
+        system,
+        name="Safety test pump",
+        actuator_type=ActuatorType.WATER_PUMP,
+    )
+    await create_rule(
+        test_session,
+        system,
+        name="Would activate if trusted",
+        priority=10,
+    )
+
+    executor = RecordingExecutor()
+    result = await process_sensor_reading_automation(
+        test_session,
+        reading=reading,
+        executor=executor,
+        current_time=PROCESSING_TIME,
+    )
+
+    assert executor.commands == []
+    assert result.rule_results == ()
+    runs = await test_session.execute(select(AutomationRun))
+    assert runs.scalars().all() == []

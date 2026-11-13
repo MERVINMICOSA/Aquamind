@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import (
     AutomationTriggerType,
+    CalibrationStatus,
     ReadingQuality,
+    SensorType,
 )
 from app.models.automation import (
     AutomationRule,
@@ -192,6 +194,20 @@ async def process_sensor_reading_automation(
         sensor is None
         or sensor.deleted_at is not None
         or not sensor.is_enabled
+    ):
+        return SensorAutomationProcessingResult(
+            reading_id=reading.id,
+            sensor_id=reading.sensor_id,
+            rule_results=(),
+        )
+
+    # Never issue control commands based on pH/TDS readings whose
+    # registered sensor is pending, rejected, or calibration-expired.
+    # This complements the alert gate and does not constitute physical
+    # proof of probe calibration.
+    if (
+        sensor.sensor_type in (SensorType.PH, SensorType.TDS)
+        and sensor.calibration_status != CalibrationStatus.VERIFIED
     ):
         return SensorAutomationProcessingResult(
             reading_id=reading.id,
