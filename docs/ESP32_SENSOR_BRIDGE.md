@@ -1,176 +1,111 @@
-# ESP32 USB packets → registered AquaMind sensor readings
+# AquaMind: automatic ESP32 sensor discovery
 
-## Status and safety
+## What changes
 
-The existing USB receiver archives complete schema-v1 `aquamind_sensor`
-packets in `esp32_telemetry` and exposes them on the dashboard.
+The Sensors website shows **only current, usable readings** from the Raspberry
+Pi's archived ESP32 USB packets. It does not expose device IDs, sensor UUIDs,
+hardware identifiers, sequence numbers, or raw diagnostic tables in the ordinary
+Sensors view. A sensor is marked **Active** only while the newest packet has been
+received recently and that value is present, not explicitly failed, and usable.
+If packets stop, old values are not displayed as active.
 
-This **opt-in bridge** additionally creates registered `sensor_readings` from
-**explicitly mapped** packet fields and evaluates sensor threshold alerts.
-It never issues actuator commands, controls the external circulation pump,
-or operates the independent ESP32 servo feeder.
+Registered sensor database history is optional and separate from the simplified
+live monitoring display. The opt-in bridge **automatically registers sensor
+records** for actual, supported numeric packet fields, requiring no sensor UUID
+map or manually entered hardware identifier. Internal database keys still
+exist for safe persistence and provenance; users do not configure them.
 
-**Disabled by default.** Do not enable until mappings and real sensor hardware
-are confirmed. Existing ESP32 packet archiving remains functional if the
-bridge is disabled.
+## Raspberry Pi runtime configuration
 
-## Enablement
-
-The Raspberry Pi systemd installer reads
-`backend/deploy/aquamind-runtime.env` and
-`backend/deploy/raspberry-pi5.hardware.env`. Configure the actual ESP32
-device and system identifiers on the Pi, **not in GitHub**:
+The Raspberry Pi still needs a configured AquaMind system and an attached USB
+ESP32 sending valid `aquamind_sensor` schema-v1 JSON packets.
 
 ```ini
 ESP32_SERIAL_ENABLED=true
-ESP32_SERIAL_PORT=/dev/serial/by-id/YOUR_ACTUAL_ESP32_DEVICE
+ESP32_SERIAL_PORT=/dev/serial/by-id/YOUR_ACTUAL_ESP32_USB_DEVICE
 ESP32_SERIAL_BAUDRATE=115200
 ESP32_DEVICE_ID=esp32-devkit-01
-ESP32_SYSTEM_ID=YOUR_EXISTING_AQUAMIND_SYSTEM_UUID
+ESP32_SYSTEM_ID=YOUR_AQUAMIND_SYSTEM_UUID
 
-# Enable only when all mappings and calibration prerequisites are ready.
-ESP32_SENSOR_BRIDGE_ENABLED=false
-ESP32_SENSOR_MAP_JSON='{"water_temp_c":"YOUR_REGISTERED_SENSOR_UUID","humidity_pct":"OTHER_REGISTERED_SENSOR_UUID"}'
+# Optional automatic database history/alert integration:
+ESP32_SENSOR_BRIDGE_ENABLED=true
 ```
 
-Replace placeholder values with IDs from the actual AquaMind database.
-Choose an existing `/dev/serial/by-id/...` device where possible to avoid
-changes in `ttyUSB` / `ttyACM` numbering. The systemd env file may require
-quoting the JSON as shown. Restart the service after changing the settings.
+`ESP32_DEVICE_ID` and `ESP32_SYSTEM_ID` are **backend transport safety
+settings** and are not shown on the website. No
+`ESP32_SENSOR_MAP_JSON` setting is needed. These identifiers tie incoming
+packets to the correct authenticated AquaMind system and prevent mixing data
+from unrelated devices. The bridge is **disabled by default** until deliberately
+enabled on the Raspberry Pi. The ordinary Sensors live view reads already
+archived ESP32 packets and does not require enabling the registered sensor
+bridge.
 
-Once the sensor rows match and the test procedure below passes, change
-`ESP32_SENSOR_BRIDGE_ENABLED=true` and restart the service. Keep
-`HARDWARE_ENABLED=false` for the Raspberry Pi GPIO/relay subsystem.
+Keep Raspberry Pi GPIO/relay hardware control disabled:
+`HARDWARE_ENABLED=false`. The water pump is independently powered;
+the fish-feeding servo has its own separate planned command transport.
 
-### Registering sensors
+## Field discovery
 
-Use authenticated `/api/v1/sensors` administration endpoints to create
-one existing physical, enabled, **non-simulated** sensor record per field.
-The `system_id` must match `ESP32_SYSTEM_ID` and the
-`hardware_identifier` must exactly match the
-`<ESP32_DEVICE_ID>:<field>` pattern. Example:
+For a new accepted packet with a real usable value, the bridge resolves or
+creates an internal sensor record automatically. Supported numeric fields:
 
-```json
-{
-  "system_id": "YOUR_EXISTING_AQUAMIND_SYSTEM_UUID",
-  "name": "Fish tank water temperature",
-  "sensor_type": "water_temperature",
-  "measurement_type": "temperature",
-  "location_type": "tank",
-  "unit": "°C",
-  "hardware_identifier": "esp32-devkit-01:water_temp_c",
-  "is_simulated": false,
-  "is_enabled": true,
-  "sampling_interval_seconds": 30,
-  "calibration_status": "pending"
-}
-```
+| Sensor | ESP32 field | Unit |
+|---|---|---|
+| Water temperature | `water_temp_c` | °C |
+| pH | `ph` | pH |
+| TDS | `tds_ppm` | ppm |
+| Water level | `water_level_pct` | % |
+| Water height | `water_height_cm` | cm |
+| Ultrasonic distance | `distance_cm` | cm |
+| Air temperature | `air_temp_c` | °C |
+| Humidity | `humidity_pct` | % |
 
-The response contains the sensor UUID to place in `ESP32_SENSOR_MAP_JSON`.
-Do not map every value to one sensor ID: **each field requires a distinct
-registered sensor row**. Unknown fields, malformed UUIDs and duplicate mapped
-sensor IDs fail startup validation rather than silently being accepted.
+The bridge does not create measurements for null fields or fields with a
+device-reported raw read failure. It does not reenable disabled/deleted
+registered sensors, trust simulator devices, or claim a physically
+disconnected probe is active. Existing device-field registration cannot be
+silently reassigned to another system.
 
-### Supported fields
+## pH and TDS remain calibration-gated
 
-| ESP32 field | Sensor type | Measurement type | Exact unit |
-|---|---|---|---|
-| `water_temp_c` | `water_temperature` | `temperature` | `°C` |
-| `ph` | `ph` | `ph` | `pH` |
-| `tds_ppm` | `tds` | `tds` | `ppm` |
-| `water_level_pct` | `water_level` | `level` | `%` |
-| `water_height_cm` | `water_level` | `level` | `cm` |
-| `distance_cm` | `water_level` | `level` | `cm` |
-| `air_temp_c` | `air_temperature` | `temperature` | `°C` |
-| `humidity_pct` | `humidity` | `humidity` | `%` |
+A non-null `ph` or `tds_ppm` value is **not sufficient** to create a trusted
+registered reading. Even if firmware claims it is calibrated, the registered
+sensor is automatically created with `calibration_status=pending`. Before
+using it for registered history/alerts, an administrator must verify the real
+probe against reference solutions and record the corresponding verified
+calibration on the registered sensor, including the ESP32 device and confirmation
+that the firmware calibration was applied. The bridge never promotes
+`ph_unverified_estimate`, `tds_unverified_ppm`, or raw voltages into
+trusted readings. The simplified Sensors page also hides uncalibrated values
+instead of calling them active.
 
-Fields with null values are skipped. If the packet explicitly reports
-`raw_readings.<sensor>.status` other than `ok`, that field is skipped,
-even if a top-level number was supplied. Raw voltages, unverified estimates
-and wet/dry flags are **never promoted** to registered sensor measurements.
+## Freshness and reliability
 
-### pH and TDS calibration safety
+- **Active** means a recent packet contained a usable numeric measurement;
+  it does not physically prove sensor accuracy.
+- If no packet arrives recently, the UI hides old measurements and indicates
+  that current sensor readings are unavailable.
+- The ESP32 packet archive and sensor/alert transaction are atomic when
+  the bridge is enabled; exact retries do not duplicate histories.
+- No GPIO actuator, external pump, relay, or feeder servo is controlled by
+  this sensor bridge.
+- Actual on-device commissioning is still required. CI tests operate with
+  synthetic packet fixtures, not real probes or the Raspberry Pi.
 
-The bridge will accept `ph` / `tds_ppm` **only** when all apply:
+## Commissioning
 
-1. Schema-v1 packet carries a non-null calibrated value and its
-   `ph_calibrated` / `tds_calibrated` flag is true.
-2. The mapped physical sensor row has `calibration_status=verified`.
-3. Its **most recent** calibration record is `status=verified`, includes
-   `verified_by_user_id` (a real approving user), and its
-   `calibration_data` includes
-   `{"esp32_device_id": "esp32-devkit-01", "firmware_applied": true}`.
+1. Confirm ESP32 USB packets appear on the dashboard in the full diagnostic view.
+2. Open **Sensors**: active water-temperature/air-temperature/humidity
+   measurements will appear without configuring sensor identifiers.
+3. With the bridge still disabled, confirm that recent packets, units and
+   raw read errors reflect actual hardware.
+4. If sensor history and threshold alerts are needed, enable
+   `ESP32_SENSOR_BRIDGE_ENABLED=true` and restart AquaMind.
+5. Confirm registered sensor records and readings appear automatically
+   in the backend, with no manual UUID map.
+6. Verify pH/TDS calibration before enabling those values for alerts.
+7. Disconnect ESP32 USB and confirm the UI **does not label old readings Active**.
 
-The metadata must be entered only after physically confirming reference
-solutions and the currently installed ESP32 firmware. These checks do not
-prove that the physical probe or ESP32 firmware is accurate. A future protocol
-extension with a verified calibration revision/device signature could provide
-stronger binding. Never mark a calibration `verified` just to make an alert
-or dashboard reading appear.
-
-If pH/TDS is missing or unverified, raw packet storage and other mapped
-environmental readings continue; pH/TDS never become fake GOOD readings.
-
-## Transaction and alert guarantees
-
-- One accepted, previously unseen packet identity
-  `(system_id, device_id, sequence, uptime_ms)` produces at most one set
-  of mapped sensor readings.
-- The packet, accepted mapped readings and threshold alerts commit as
-  **one database transaction**. An exception rolls the transaction back
-  (there is no partial packet-to-reading save).
-- A byte-for-byte-equivalent retry is a duplicate and creates no readings
-  or alerts. A conflicting packet using the same identity is rejected.
-- Sensor timestamp is the Raspberry Pi's UTC **receipt time**, not an
-  invented ESP32 wall clock timestamp. Device `sequence` is preserved on
-  each registered reading.
-- **Historical raw packets are not backfilled** into registered sensor
-  histories by merely enabling the bridge. Only newly accepted packets
-  are mapped.
-- The existing calibration-gated threshold alerts are evaluated. No
-  sensor-triggered automation or relay operation is executed by this
-  bridge. A separate feeder-command system remains future work.
-
-### Limits to know before field deployment
-
-The v1 packet has `uptime_ms` and `sequence`, but no persistent boot ID
-or absolute measurement timestamp. On a complete ESP32 reboot, identity
-reuse may occur; such collisions are deliberately treated as duplicates
-or conflicts rather than causing duplicate alerts. Buffered, out-of-order
-packets cannot always be distinguished from genuinely new packets. For
-stronger ordering across resets, add firmware `boot_id` and a device
-timestamp in a separately versioned protocol, then migrate the archive
-identity and tests.
-
-## Commissioning checks
-
-1. Confirm the ESP32 packet archive is updating in the dashboard first.
-2. Register mapped sensors with exact units and hardware identifiers.
-3. With bridge **off**, check each raw packet field and any read-fault
-   diagnostics. Correct wiring and calibration first.
-4. Enable the bridge for **water temperature only** and verify that a new
-   packet creates one `sensor_readings` row, appears on Sensors, and
-   updates the trend. Disconnect/reconnect USB and verify no duplicate
-   rows for retried packets.
-5. Add air temperature, humidity and optional water-level mappings
-   one at a time. Verify all sensor locations, values, units and timing.
-6. Only after actual pH/TDS buffer/reference testing and recorded
-   physical calibration, configure their verified calibration records
-   and mappings.
-7. Configure suitable enabled alert thresholds and verify warning and
-   critical test cases with synthetic fixtures **before** relying on live
-   alerts. Confirm no actuator or circulation commands occur.
-8. Confirm the frontend backend API URL is correct for the Pi deployment.
-   Keep the website and USB serial service restricted to intended users.
-
-## Development verification
-
-Run:
-```bash
-cd backend
-python -m pytest -q tests/test_esp32_sensor_bridge.py tests/test_esp32_serial_service.py
-python -m pytest -q
-```
-
-No real ESP32 is connected during GitHub CI. Field calibration and end-to-end
-USB tests on the Raspberry Pi remain necessary before unattended operation.
+Internal sensor identifiers remain in the database for reconciliation, audit
+logs and historical detail links; they are deliberately not part of the normal
+Sensors UI or manual setup.
