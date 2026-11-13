@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useSensorsOverview } from '../hooks/useSensorsOverview'
 import { Esp32TelemetryPanel } from '../components/dashboard/Esp32TelemetryPanel'
 
@@ -21,6 +22,7 @@ export function SensorsPage() {
           </p>
         </div>
 
+        <Link to="/history" className="sensor-detail-link">Search past readings</Link>
         {overview.systems.length > 0 && (
           <div className="system-selector">
             <label htmlFor="sensors-system">Aquaponics system</label>
