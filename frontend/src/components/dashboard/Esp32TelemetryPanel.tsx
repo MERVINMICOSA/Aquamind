@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { listEsp32Telemetry } from '../../services/esp32TelemetryService'
+import { loadSystemSensorOverview } from '../../services/sensorService'
+import type { SystemSensorOverview } from '../../services/sensorService'
+import type { DashboardSensor } from '../../types/dashboard'
 import type { Esp32RawReadings, Esp32RawSensorReading, Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
 import './Esp32TelemetryPanel.css'
 
@@ -106,6 +109,135 @@ function rawValue(reading: Esp32RawSensorReading | null | undefined): string {
   return `${reading.value} ${reading.unit ? units[reading.unit] : ''}`.trim()
 }
 
+type SimpleReading = {
+  label: string
+  value: string
+  recordedAt: string
+  origin: 'hardware' | 'simulator'
+  activeWindowMs: number
+  rawFaultAt?: string
+}
+
+function displaySensorName(sensor: DashboardSensor): string {
+  const field = sensor.hardware_identifier?.split(':').at(-1)
+  const nameByField: Record<string, string> = {
+    water_temp_c: 'Water temperature',
+    ph: 'pH',
+    tds_ppm: 'TDS',
+    water_level_pct: 'Water level',
+    water_height_cm: 'Water height',
+    distance_cm: 'Ultrasonic distance',
+    air_temp_c: 'Air temperature',
+    humidity_pct: 'Air humidity',
+  }
+  if (field && nameByField[field]) return nameByField[field]
+  switch (sensor.sensor_type) {
+    case 'water_temperature': return 'Water temperature'
+    case 'air_temperature': return 'Air temperature'
+    case 'humidity': return 'Air humidity'
+    case 'ph': return 'pH'
+    case 'tds': return 'TDS'
+    case 'water_level': return sensor.name || 'Water level'
+    default: return sensor.name
+  }
+}
+
+function simplePacketMetrics(packet: Esp32SensorPacket, receivedAt: string): SimpleReading[] {
+  const candidates = [
+    { label: 'Water temperature', value: packet.water_temp_c, unit: '°C', rawKey: 'water_temperature' },
+    { label: 'Water level', value: packet.water_level_pct, unit: '%', rawKey: 'ultrasonic' },
+    { label: 'Water height', value: packet.water_height_cm, unit: 'cm', rawKey: 'ultrasonic' },
+    { label: 'Ultrasonic distance', value: packet.distance_cm, unit: 'cm', rawKey: 'ultrasonic' },
+    { label: 'Air temperature', value: packet.air_temp_c, unit: '°C', rawKey: 'air_temperature' },
+    { label: 'Air humidity', value: packet.humidity_pct, unit: '%', rawKey: 'humidity' },
+  ] as const
+
+  return candidates.flatMap(({ label, value, unit, rawKey }) => {
+    const raw = packet.raw_readings?.[rawKey]
+    if (value === null || !Number.isFinite(value) || (raw && raw.status !== 'ok')) return []
+    return [{
+      label,
+      value: `${value.toFixed(unit === '%' ? 1 : 2)} ${unit}`,
+      recordedAt: receivedAt,
+      origin: 'hardware' as const,
+      activeWindowMs: 45_000,
+    }]
+  })
+}
+
+function composeSimpleReadings(
+  packet: Esp32Telemetry | null,
+  overview: SystemSensorOverview | null,
+): SimpleReading[] {
+  const byLabel = new Map<string, SimpleReading>()
+  // The packet archive can supply readings without a configured database bridge.
+  if (packet) {
+    for (const metric of simplePacketMetrics(packet.packet, packet.received_at)) {
+      byLabel.set(metric.label, metric)
+    }
+  }
+  if (overview) {
+    const sensors = new Map(overview.sensors.map(sensor => [sensor.id, sensor]))
+    for (const reading of overview.latestReadings) {
+      const sensor = sensors.get(reading.sensor_id)
+      if (!sensor || !sensor.is_enabled || reading.quality_status !== 'good') continue
+      if (sensor.sensor_type === 'ph' || sensor.sensor_type === 'tds') {
+        // Only registered readings with server-side calibration approval qualify.
+        if (sensor.calibration_status !== 'verified') continue
+      }
+      const value = Number(reading.value_numeric)
+      if (!Number.isFinite(value)) continue
+      const label = displaySensorName(sensor)
+      const metric: SimpleReading = {
+        label,
+        value: `${value.toFixed(sensor.unit === 'ppm' ? 0 : 2)} ${reading.unit}`,
+        recordedAt: reading.recorded_at,
+        origin: sensor.is_simulated || reading.source === 'simulator' ? 'simulator' : 'hardware',
+        activeWindowMs: Math.max(45_000, Math.min(sensor.sampling_interval_seconds * 3_000, 120_000)),
+      }
+      const current = byLabel.get(label)
+      if (!current || Date.parse(metric.recordedAt) > Date.parse(current.recordedAt)) {
+        byLabel.set(label, metric)
+      }
+    }
+  }
+
+  // If the newest ESP32 packet reports that a physical read failed, an old
+  // registered value must not masquerade as an active device measurement.
+  if (packet?.packet.raw_readings) {
+    const faults: Record<string, string[]> = {
+      water_temperature: ['Water temperature'],
+      ultrasonic: ['Water level', 'Water height', 'Ultrasonic distance'],
+      air_temperature: ['Air temperature'],
+      humidity: ['Air humidity'],
+      ph: ['pH'],
+      tds: ['TDS'],
+    }
+    for (const [rawKey, labels] of Object.entries(faults)) {
+      const raw = packet.packet.raw_readings[rawKey as keyof Esp32RawReadings]
+      if (raw && raw.status !== 'ok') {
+        for (const label of labels) {
+          const current = byLabel.get(label)
+          if (current && Date.parse(current.recordedAt) <= Date.parse(packet.received_at)) {
+            byLabel.set(label, { ...current, rawFaultAt: packet.received_at })
+          }
+        }
+      }
+    }
+  }
+
+  return [...byLabel.values()].sort((left, right) => left.label.localeCompare(right.label))
+}
+
+function simpleReadingState(reading: SimpleReading, nowMs: number): 'Active' | 'Last saved' | 'Simulated' {
+  if (reading.origin === 'simulator') return 'Simulated'
+  const ageMs = nowMs - Date.parse(reading.recordedAt)
+  const faultIsNewer = reading.rawFaultAt && Date.parse(reading.rawFaultAt) >= Date.parse(reading.recordedAt)
+  return !faultIsNewer && Number.isFinite(ageMs) && ageMs >= -10_000 && ageMs <= reading.activeWindowMs
+    ? 'Active'
+    : 'Last saved'
+}
+
 /**
  * Standalone, read-only view. It does not register values as calibrated
  * sensor readings or send any commands to pumps/actuators.
@@ -114,6 +246,8 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
   const [packets, setPackets] = useState<Esp32Telemetry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [registeredOverview, setRegisteredOverview] = useState<SystemSensorOverview | null>(null)
+  const [registeredStatus, setRegisteredStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     // Demo preview bypasses API polling entirely.
@@ -150,6 +284,37 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
     }
   }, [systemId, demoPackets])
 
+  // Registered sensor history is an independent source of measurements.
+  // This makes the Sensors page usable even if ESP32 packet archiving and
+  // registered-reading persistence were configured at different times.
+  useEffect(() => {
+    if (mode !== 'simple' || demoPackets !== undefined) return
+
+    let active = true
+    let busy = false
+    const refreshRegistered = async () => {
+      if (busy) return
+      busy = true
+      try {
+        const next = await loadSystemSensorOverview(systemId)
+        if (active) {
+          setRegisteredOverview(next)
+          setRegisteredStatus('ready')
+        }
+      } catch {
+        if (active) setRegisteredStatus('error')
+      } finally {
+        busy = false
+      }
+    }
+    void refreshRegistered()
+    const timer = window.setInterval(() => { void refreshRegistered() }, 10000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [systemId, mode, demoPackets])
+
   const displayedPackets = demoPackets ?? packets
   const displayedStatus = demoPackets !== undefined ? 'ready' : status
   const latest = displayedPackets[0] ?? null
@@ -158,78 +323,61 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
     ? { state: 'unknown', label: 'Demo preview', detail: 'Sample data only; no physical ESP32 connection checked.' }
     : signalHealth(latest, displayedStatus, nowMs)
 
-  const rawFieldForLabel: Record<string, keyof Esp32RawReadings> = {
-    'Water temperature': 'water_temperature',
-    pH: 'ph',
-    TDS: 'tds',
-    'Water level': 'ultrasonic',
-    'Air temperature': 'air_temperature',
-    'Air humidity': 'humidity',
-    'Ultrasonic distance': 'ultrasonic',
-    'Water height': 'ultrasonic',
-  }
-  const currentMetrics = packet === undefined ? [] : fields(packet).filter(
-    ({ label, value }) => {
-      if (value === 'No reading' || value === 'Not calibrated') return false
-      const rawKey = rawFieldForLabel[label]
-      const diagnostic = rawKey === undefined
-        ? undefined
-        : packet.raw_readings?.[rawKey]
-      return diagnostic == null || diagnostic.status === 'ok'
-    },
-  )
-
+  const readings = composeSimpleReadings(latest, registeredOverview)
   if (mode === 'simple') {
-    const reporting = connection.state === 'connected'
+    const successfulSource = displayedStatus === 'ready' || registeredStatus === 'ready'
+    const hasCurrentData = readings.some(reading => simpleReadingState(reading, nowMs) === 'Active')
+
     return (
       <section className="esp32-telemetry" aria-label="Current sensor readings">
         <div className="esp32-telemetry__header">
           <div>
-            <p className="eyebrow">Live monitoring</p>
-            <h2>Current sensor readings</h2>
+            <p className="eyebrow">Monitoring</p>
+            <h2>Sensor readings</h2>
           </div>
           <span>Refreshes every 10 seconds</span>
         </div>
-        <div
-          className="esp32-telemetry__connection"
-          data-state={connection.state}
-          role="status"
-          aria-live="polite"
-        >
+        <div className="esp32-telemetry__connection" data-state={hasCurrentData ? 'connected' : 'stale'} role="status" aria-live="polite">
           <span className="esp32-telemetry__connection-dot" aria-hidden="true" />
           <div>
-            <strong>{reporting ? 'Sensor data active' : connection.label}</strong>
-            <p>{connection.detail}</p>
+            <strong>{hasCurrentData ? 'Receiving recent measurements' : 'No current measurements'}</strong>
+            <p>{readings.length > 0
+              ? 'Saved measurements remain visible when the device stops reporting.'
+              : 'No saved sensor measurements are available for this system.'}</p>
           </div>
         </div>
-        {displayedStatus === 'error' && (
-          <p role="alert">Unable to refresh sensor data. Older readings are not shown as active.</p>
+        {displayedStatus === 'loading' && registeredStatus === 'loading' && (
+          <p role="status">Loading sensor readings...</p>
         )}
-        {displayedStatus === 'loading' && (
-          <p>Checking current sensor readings...</p>
+        {displayedStatus === 'error' && registeredStatus === 'error' && (
+          <p role="alert">Unable to load sensor readings from the backend. Check the API connection.</p>
         )}
-        {reporting && currentMetrics.length > 0 ? (
+        {readings.length > 0 && (
           <div className="esp32-telemetry__grid">
-            {currentMetrics.map(({ label, value }) => (
-              <article className="esp32-telemetry__metric" key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-                <span className="sensor-state sensor-state--enabled">
-                  Active
-                </span>
-              </article>
-            ))}
+            {readings.map(reading => {
+              const state = simpleReadingState(reading, nowMs)
+              return (
+                <article className="esp32-telemetry__metric" key={reading.label}>
+                  <span>{reading.label}</span>
+                  <strong>{reading.value}</strong>
+                  <span className={state === 'Active'
+                    ? 'sensor-state sensor-state--enabled'
+                    : 'sensor-state sensor-state--disabled'}>
+                    {state}
+                  </span>
+                  <span>Recorded: {timestamp(reading.recordedAt)}</span>
+                </article>
+              )
+            })}
           </div>
-        ) : displayedStatus === 'ready' && (
-          <p>No active sensor readings available. Check the ESP32 connection and sensor output.</p>
         )}
-        {reporting && packet !== undefined
-          && (!packet.ph_calibrated || !packet.tds_calibrated) && (
-          <p className="data-note">
-            Uncalibrated pH/TDS values are hidden until calibration is verified.
-            Active means recent device data, not proof that a probe is accurate.
-          </p>
+        {successfulSource && readings.length === 0 && (
+          <p>No saved sensor values yet. Check that the selected system is receiving ESP32 packets or registered sensor readings.</p>
         )}
+        <p className="data-note">
+          Active means a recent usable measurement, not proof of probe accuracy.
+          Unverified pH and TDS estimates are not displayed as calibrated values.
+        </p>
       </section>
     )
   }
