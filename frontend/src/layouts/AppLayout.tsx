@@ -175,7 +175,7 @@ export function AppLayout() {
             </span>
 
             <span className="app-topbar__title">
-              Smart Aquaponics Monitoring
+              Aquaponics Monitoring & Feeding
             </span>
           </div>
 
