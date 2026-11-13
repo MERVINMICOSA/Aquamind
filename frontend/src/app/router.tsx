@@ -1,5 +1,5 @@
-import { ActuatorDetailPage } from '../pages/ActuatorDetailPage'
 import {
+  Navigate,
   Route,
   Routes,
 } from 'react-router-dom'
@@ -16,14 +16,8 @@ import {
 } from '../layouts/AppLayout'
 
 import {
-  ActuatorsPage,
-} from '../pages/ActuatorsPage'
-import {
   AlertsPage,
 } from '../pages/AlertsPage'
-import {
-  AutomationPage,
-} from '../pages/AutomationPage'
 import {
   DashboardPage,
 } from '../pages/DashboardPage'
@@ -45,9 +39,7 @@ import {
 import {
   SettingsPage,
 } from '../pages/SettingsPage'
-import {
-  RefillPage,
-} from '../pages/RefillPage'
+import { WaterFlowPage } from '../pages/WaterFlowPage'
 
 
 export function AppRoutes() {
@@ -109,18 +101,8 @@ export function AppRoutes() {
           />
 
 
-          <Route
-            path="actuators"
-            element={
-              <ActuatorsPage />
-            }
-          />
-
-
-          <Route
-            path="actuators/:actuatorId"
-            element={<ActuatorDetailPage />}
-          />
+          <Route path="actuators" element={<Navigate to="/water-flow" replace />} />
+          <Route path="actuators/:actuatorId" element={<Navigate to="/water-flow" replace />} />
 
           <Route
             path="feeding"
@@ -129,20 +111,13 @@ export function AppRoutes() {
             }
           />
 
-          <Route
-            path="refill"
-            element={
-              <RefillPage />
-            }
-          />
+          <Route path="refill" element={<Navigate to="/water-flow" replace />} />
+          <Route path="automation" element={<Navigate to="/water-flow" replace />} />
 
           <Route
-            path="automation"
-            element={
-              <AutomationPage />
-            }
+            path="water-flow"
+            element={<WaterFlowPage />}
           />
-
 
           <Route
             path="alerts"
