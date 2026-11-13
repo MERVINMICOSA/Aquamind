@@ -64,8 +64,10 @@ export function WaterFlowPage() {
           <h2 id="water-flow-feeding">Fish feeding stays available</h2>
           <p>
             AquaMind retains feeding schedules, fish population records,
-            feeder calibration, and feeding history. Any powered feeder is
-            independent of the externally powered water circulation loop.
+            feeder calibration, and feeding history. The planned feeder
+            uses an ESP32-controlled servo, separate from the externally
+            powered water circulation loop. Servo command transport and
+            acknowledgment still need implementation.
           </p>
           <Link to="/feeding" className="sensor-detail-link">
             Open feeding management
