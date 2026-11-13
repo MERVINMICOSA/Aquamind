@@ -77,7 +77,7 @@ describe('simplified ESP32 history', () => {
     expect(screen.getByRole('columnheader', { name: 'Air temperature' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Humidity' })).toBeInTheDocument()
     expect(screen.getByText('84.60 %')).toBeInTheDocument()
-    expect(screen.getByText('Not calibrated').closest('td')).toBeInTheDocument()
+    expect(screen.getAllByText('Not calibrated')).toHaveLength(2)
     expect(screen.getByText(/1 matching saved packets/)).toBeInTheDocument()
     expect(screen.getByText(/Showing history for/)).toHaveTextContent(SYSTEM.name)
     expect(screen.queryByLabelText('Aquaponics system')).not.toBeInTheDocument()
