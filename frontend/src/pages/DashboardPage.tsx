@@ -606,6 +606,9 @@ export function DashboardPage() {
                     <h2>
                       Latest sensor readings
                     </h2>
+                    <Link to="/history" className="sensor-detail-link">
+                      Search past readings
+                    </Link>
                   </div>
 
 
