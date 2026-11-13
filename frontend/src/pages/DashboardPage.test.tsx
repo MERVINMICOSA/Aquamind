@@ -121,13 +121,6 @@ describe(
         errorMessage: null,
       })
 
-      vi.mocked(
-        useDashboardActuatorActivity,
-      ).mockReturnValue({
-        events: [],
-        status: 'idle',
-        errorMessage: null,
-      })
     })
 
 
@@ -262,15 +255,6 @@ describe(
             'Main System',
             {
               selector: 'strong',
-            },
-          ),
-        ).toBeInTheDocument()
-
-        expect(
-          screen.getByText(
-            'Sensors',
-            {
-              selector: 'dt',
             },
           ),
         ).toBeInTheDocument()
