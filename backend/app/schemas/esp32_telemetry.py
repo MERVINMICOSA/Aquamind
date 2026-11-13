@@ -104,3 +104,12 @@ class Esp32TelemetryResponse(BaseModel):
     system_id: UUID
     received_at: datetime
     packet: Esp32SensorPacket
+
+
+class Esp32TelemetrySearchResponse(BaseModel):
+    """Server-paginated history search; count is over the full matching range."""
+
+    items: list[Esp32TelemetryResponse]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
