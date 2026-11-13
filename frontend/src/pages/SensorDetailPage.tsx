@@ -23,6 +23,8 @@ import {
   SensorTrendChart,
 } from '../components/sensors/SensorTrendChart'
 
+import { SensorCalibrationPanel } from '../components/sensors/SensorCalibrationPanel'
+
 
 function formatValue(
   value: string,
@@ -221,6 +223,34 @@ export function SensorDetailPage() {
         detail.sensor !==
           null && (
         <>
+          <section className="surface-panel" aria-labelledby="sensor-detail-guide">
+            <div>
+              <p className="eyebrow">Page guide</p>
+              <h2 id="sensor-detail-guide">What this sensor page shows</h2>
+              <p>
+                These values are the saved readings for a registered sensor,
+                not a live electrical test of the ESP32. The recorded
+                timestamp describes how recent the data is; it does not
+                prove that the probe is connected, accurate, or calibrated.
+                Use the history and calibration records below to review it.
+              </p>
+              <p>
+                USB telemetry packets are saved separately. Receiving
+                ESP32 sensor packets does not automatically populate this
+                sensor's reading history or calibrate the physical probe.
+              </p>
+            </div>
+          </section>
+
+          {(detail.sensor.sensor_type === 'ph' || detail.sensor.sensor_type === 'tds')
+            && detail.sensor.calibration_status !== 'verified' && (
+            <div role="status" className="status-message">
+              Calibration required: this {detail.sensor.sensor_type === 'ph' ? 'pH' : 'TDS'}
+              {' '}sensor is not verified. Any saved numbers here must not
+              be treated as validated water-quality measurements.
+            </div>
+          )}
+
           <section className="sensor-detail-summary">
             <div>
               <span>
@@ -582,6 +612,12 @@ export function SensorDetailPage() {
               </div>
             </dl>
           </section>
+
+          <SensorCalibrationPanel
+            sensorId={detail.sensor.id}
+            sensorType={detail.sensor.sensor_type}
+            calibrationStatus={detail.sensor.calibration_status}
+          />
 
           <section className="sensor-detail-panel">
             <div className="sensor-detail-panel__heading">
