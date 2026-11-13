@@ -175,7 +175,7 @@ const actuator = {
     'Feeding Actuator',
 
   actuator_type:
-    'water pump',
+    'fish_feeder',
 
   control_mode:
     'scheduled',
@@ -750,6 +750,26 @@ describe(
             'No aquaponics system configured',
           ),
         ).toBeInTheDocument()
+      },
+    )
+
+
+    it(
+      'explains the ESP32 servo setup and incomplete command transport',
+      () => {
+        mockedUseFeedingOverview.mockReturnValue(readyOverview())
+
+        render(<FeedingPage />)
+
+        expect(screen.getByRole('heading', {
+          name: 'ESP32 servo feeder',
+        })).toBeInTheDocument()
+        expect(screen.getByText(/does not yet send servo-feed commands/))
+          .toBeInTheDocument()
+        expect(screen.getByText(/Do not power the servo directly/))
+          .toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /turn on pump/i }))
+          .not.toBeInTheDocument()
       },
     )
 
