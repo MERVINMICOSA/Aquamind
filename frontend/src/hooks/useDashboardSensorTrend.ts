@@ -87,7 +87,6 @@ export function useDashboardSensorTrend(
       }
     }
 
-    setReadings([])
     void loadTrend()
     const timer = window.setInterval(() => { void loadTrend() }, 10000)
     return () => {
