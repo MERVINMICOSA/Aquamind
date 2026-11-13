@@ -5,7 +5,13 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import AlertSeverity, AlertStatus, ReadingQuality
+from app.db.enums import (
+    AlertSeverity,
+    AlertStatus,
+    CalibrationStatus,
+    ReadingQuality,
+    SensorType,
+)
 from app.models.alerts import Alert, AlertThreshold
 from app.models.sensors import Sensor, SensorReading
 from app.services.alert_evaluator import evaluate_alert_severity
@@ -39,7 +45,22 @@ async def process_sensor_reading(
         reading.sensor_id,
     )
 
-    if sensor is None:
+    if (
+        sensor is None
+        or sensor.deleted_at is not None
+        or not sensor.is_enabled
+    ):
+        return None
+
+    # Calibration-dependent measurements must never trigger
+    # threshold alerts while the registered sensor is pending,
+    # rejected, or expired. This guard does not itself establish
+    # that the physical probe is calibrated or convert raw ESP32
+    # packet estimates into trusted sensor readings.
+    if (
+        sensor.sensor_type in (SensorType.PH, SensorType.TDS)
+        and sensor.calibration_status != CalibrationStatus.VERIFIED
+    ):
         return None
 
     # ------------------------------------------------------------
