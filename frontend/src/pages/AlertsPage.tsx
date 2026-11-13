@@ -71,13 +71,10 @@ export function AlertsPage() {
                   overview.selectedSystemId ??
                   ''
                 }
-                onChange={
-                  (event) =>
-                    {
-                    setResolutionDraft(null)
-                    overview.selectSystem(event.target.value)
-                  }
-                }
+                onChange={(event) => {
+                  setResolutionDraft(null)
+                  overview.selectSystem(event.target.value)
+                }}
               >
                 {
                   overview.systems.map(
@@ -417,7 +414,7 @@ export function AlertsPage() {
                                           Resolve
                                         </button>
 
-                                        {resolutionDraft?.alertId === alert.id && (
+                                        {resolutionDraft !== null && resolutionDraft.alertId === alert.id && (
                                           <form
                                             onSubmit={(event) => {
                                               event.preventDefault()
