@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { listSystems } from '../services/dashboardService'
 import {
@@ -173,7 +174,7 @@ export function SensorHistoryPage() {
   const visible = loaded?.key === queryKey ? loaded : null
   const config = FIELDS.find(item => item.value === applied.field) ?? FIELDS[0]!
   const items = visible?.data.items ?? []
-  const chartRows = useMemo<DashboardSensorReading[]>(() => {
+  const chartRows: DashboardSensorReading[] = (() => {
     return items.flatMap(item => {
       const measurement = packetMeasurement(item, config.value)
       if (measurement.value === null) return []
@@ -189,9 +190,9 @@ export function SensorHistoryPage() {
         created_at: item.received_at,
       }]
     })
-  }, [items, config.value, config.unit, config.diagnostic])
+  })()
 
-  function submitSearch(event: React.FormEvent<HTMLFormElement>) {
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (draft.from && draft.to && draft.from > draft.to) {
       setValidationError('Start date cannot be after end date.')
