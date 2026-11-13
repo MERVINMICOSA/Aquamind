@@ -7,6 +7,8 @@ interface Props {
   systemId: string
   /** Offline-only fixture, supplied by the demo dashboard. Never fetched. */
   demoPackets?: Esp32Telemetry[]
+  /** Simplified monitoring view: only current readings, no internal IDs. */
+  mode?: 'details' | 'simple'
 }
 
 function numeric(value: number | null, suffix = '', digits = 2): string {
@@ -108,7 +110,7 @@ function rawValue(reading: Esp32RawSensorReading | null | undefined): string {
  * Standalone, read-only view. It does not register values as calibrated
  * sensor readings or send any commands to pumps/actuators.
  */
-export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
+export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }: Props) {
   const [packets, setPackets] = useState<Esp32Telemetry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -155,6 +157,79 @@ export function Esp32TelemetryPanel({ systemId, demoPackets }: Props) {
   const connection = demoPackets !== undefined
     ? { state: 'unknown', label: 'Demo preview', detail: 'Sample data only; no physical ESP32 connection checked.' }
     : signalHealth(latest, displayedStatus, nowMs)
+
+  const rawFieldForLabel: Record<string, keyof Esp32RawReadings> = {
+    'Water temperature': 'water_temperature',
+    pH: 'ph',
+    TDS: 'tds',
+    'Water level': 'ultrasonic',
+    'Air temperature': 'air_temperature',
+    'Air humidity': 'humidity',
+    'Ultrasonic distance': 'ultrasonic',
+    'Water height': 'ultrasonic',
+  }
+  const currentMetrics = packet === undefined ? [] : fields(packet).filter(
+    ({ label, value }) => {
+      if (value === 'No reading' || value === 'Not calibrated') return false
+      const diagnostic = packet.raw_readings?.[rawFieldForLabel[label]]
+      return diagnostic == null || diagnostic.status === 'ok'
+    },
+  )
+
+  if (mode === 'simple') {
+    const reporting = connection.state === 'connected'
+    return (
+      <section className="esp32-telemetry" aria-label="Current sensor readings">
+        <div className="esp32-telemetry__header">
+          <div>
+            <p className="eyebrow">Live monitoring</p>
+            <h2>Current sensor readings</h2>
+          </div>
+          <span>Refreshes every 10 seconds</span>
+        </div>
+        <div
+          className="esp32-telemetry__connection"
+          data-state={connection.state}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="esp32-telemetry__connection-dot" aria-hidden="true" />
+          <div>
+            <strong>{reporting ? 'Sensor data active' : connection.label}</strong>
+            <p>{connection.detail}</p>
+          </div>
+        </div>
+        {displayedStatus === 'error' && (
+          <p role="alert">Unable to refresh sensor data. Older readings are not shown as active.</p>
+        )}
+        {displayedStatus === 'loading' && (
+          <p>Checking current sensor readings...</p>
+        )}
+        {reporting && currentMetrics.length > 0 ? (
+          <div className="esp32-telemetry__grid">
+            {currentMetrics.map(({ label, value }) => (
+              <article className="esp32-telemetry__metric" key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <span className="sensor-state sensor-state--enabled">
+                  Active
+                </span>
+              </article>
+            ))}
+          </div>
+        ) : displayedStatus === 'ready' && (
+          <p>No active sensor readings available. Check the ESP32 connection and sensor output.</p>
+        )}
+        {reporting && packet !== undefined
+          && (!packet.ph_calibrated || !packet.tds_calibrated) && (
+          <p className="data-note">
+            Uncalibrated pH/TDS values are hidden until calibration is verified.
+            Active means recent device data, not proof that a probe is accurate.
+          </p>
+        )}
+      </section>
+    )
+  }
 
   return (
     <section className="esp32-telemetry" aria-label="ESP32 device telemetry">
