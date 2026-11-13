@@ -16,12 +16,10 @@ import { useAuth } from '../hooks/useAuth'
 type NavigationIcon =
   | 'dashboard'
   | 'sensors'
-  | 'actuators'
   | 'feeding'
-  | 'refill'
-  | 'automation'
   | 'alerts'
   | 'settings'
+  | 'water-flow'
 
 
 interface NavigationItem {
@@ -46,24 +44,14 @@ const navigationItems:
       icon: 'sensors',
     },
     {
-      label: 'Actuators',
-      path: '/actuators',
-      icon: 'actuators',
-    },
-    {
       label: 'Feeding',
       path: '/feeding',
       icon: 'feeding',
     },
     {
-      label: 'Refill',
-      path: '/refill',
-      icon: 'refill',
-    },
-    {
-      label: 'Automation',
-      path: '/automation',
-      icon: 'automation',
+      label: 'Water Flow',
+      path: '/water-flow',
+      icon: 'water-flow',
     },
     {
       label: 'Alerts',
@@ -183,11 +171,11 @@ export function AppLayout() {
         <header className="app-topbar">
           <div className="app-topbar__heading">
             <span className="app-topbar__context">
-              AquaMind Control Center
+              AquaMind Aquaponics Center
             </span>
 
             <span className="app-topbar__title">
-              Smart Aquaponics Management
+              Aquaponics Monitoring & Feeding
             </span>
           </div>
 

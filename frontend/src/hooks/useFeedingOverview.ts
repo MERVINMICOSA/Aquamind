@@ -302,12 +302,10 @@ export function useFeedingOverview() {
 
 
   /*
-   * Load all configured, non-deleted actuators
-   * belonging to the selected system.
-   *
-   * Do not guess which actuator types are valid
-   * feeders. The backend relationship contract
-   * remains authoritative.
+   * Feeding only uses fish_feeder actuator records.
+   * Keep the underlying actuator model for feeder calibration and
+   * scheduling, but never offer circulation pumps or relays as
+   * targets for feeding schedules.
    */
   useEffect(() => {
     const systemId =
@@ -334,12 +332,18 @@ export function useFeedingOverview() {
         }
 
         const orderedActuators =
-          [...result.actuators].sort(
-            (left, right) =>
-              left.name.localeCompare(
-                right.name,
-              ),
-          )
+          result.actuators
+            .filter(
+              (actuator) =>
+                actuator.actuator_type ===
+                'fish_feeder',
+            )
+            .sort(
+              (left, right) =>
+                left.name.localeCompare(
+                  right.name,
+                ),
+            )
 
         setActuatorState({
           systemId:
