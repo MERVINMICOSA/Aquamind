@@ -368,3 +368,62 @@ async def test_ingestion_failure_rolls_back_packet_and_readings_together(
     assert await readings(test_session_factory) == []
     async with test_session_factory() as session:
         assert (await session.execute(select(Esp32Telemetry))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_tds_requires_a_human_verified_matching_calibration(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    sensor = await sensor_id(
+        client, system, "tds_ppm", sensor_type="tds",
+        measurement_type="tds", unit="ppm", calibration_status="verified",
+    )
+    mapping = {"tds_ppm": sensor}
+    packet = {**PACKET, "tds_calibrated": True, "tds_ppm": 1249}
+
+    # A status flag alone is not enough to admit a hardware water-quality reading.
+    assert await save(test_session_factory, system, mapping, packet) == "created"
+    assert await readings(test_session_factory) == []
+
+    async with test_session_factory() as session:
+        await set_calibration(session, sensor, verified_by=False)
+
+    assert await save(test_session_factory, system, mapping, {
+        **packet, "sequence": 6, "uptime_ms": 16000,
+    }) == "created"
+    assert await readings(test_session_factory) == []
+
+    async with test_session_factory() as session:
+        await set_calibration(session, sensor)
+
+    assert await save(test_session_factory, system, mapping, {
+        **packet, "sequence": 7, "uptime_ms": 17000,
+    }) == "created"
+    saved = await readings(test_session_factory)
+    assert len(saved) == 1
+    assert saved[0].sensor_id == sensor
+    assert float(saved[0].value_numeric) == pytest.approx(1249)
+
+
+@pytest.mark.asyncio
+async def test_unverified_estimates_do_not_turn_into_trusted_ph_tds_readings(
+    client, test_session_factory,
+):
+    system = await system_id(client)
+    ph = await sensor_id(
+        client, system, "ph", sensor_type="ph", measurement_type="ph",
+        unit="pH", calibration_status="pending",
+    )
+    tds = await sensor_id(
+        client, system, "tds_ppm", sensor_type="tds",
+        measurement_type="tds", unit="ppm", calibration_status="pending",
+    )
+    assert await save(test_session_factory, system, {
+        "ph": ph, "tds_ppm": tds,
+    }) == "created"
+    assert await readings(test_session_factory) == []
+    async with test_session_factory() as session:
+        archive = (await session.execute(select(Esp32Telemetry))).scalars().one()
+        assert archive.packet["ph_unverified_estimate"] == 17.45
+        assert archive.packet["tds_unverified_ppm"] == 1249
