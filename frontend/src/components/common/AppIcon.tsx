@@ -8,6 +8,7 @@ interface AppIconProps {
     | 'automation'
     | 'alerts'
     | 'settings'
+    | 'water-flow'
     | 'user'
     | 'logout'
 }
@@ -93,6 +94,16 @@ export function AppIcon({
           <path d="M6 7l1 13h10l1-13" />
           <path d="M9 3h6" />
           <path d="M10 11h4" />
+        </svg>
+      )
+
+    case 'water-flow':
+      return (
+        <svg {...commonProps}>
+          <path d="M3 7h10a4 4 0 0 1 4 4v2" />
+          <path d="m13 11 4 4 4-4" />
+          <path d="M21 17H11a4 4 0 0 1-4-4v-2" />
+          <path d="m11 13-4-4-4 4" />
         </svg>
       )
 
