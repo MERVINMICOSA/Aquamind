@@ -171,7 +171,7 @@ export function AppLayout() {
         <header className="app-topbar">
           <div className="app-topbar__heading">
             <span className="app-topbar__context">
-              AquaMind Monitoring Center
+              AquaMind Aquaponics Center
             </span>
 
             <span className="app-topbar__title">
