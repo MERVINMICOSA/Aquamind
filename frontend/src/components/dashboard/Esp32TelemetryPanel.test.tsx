@@ -1,12 +1,22 @@
 import { render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { listEsp32Telemetry } from '../../services/esp32TelemetryService'
+import { loadSystemSensorOverview } from '../../services/sensorService'
 import { Esp32TelemetryPanel } from './Esp32TelemetryPanel'
 
 vi.mock('../../services/esp32TelemetryService', () => ({
   listEsp32Telemetry: vi.fn(),
 }))
+vi.mock('../../services/sensorService', () => ({
+  loadSystemSensorOverview: vi.fn(),
+}))
+
+beforeEach(() => {
+  vi.mocked(loadSystemSensorOverview).mockResolvedValue({
+    sensors: [], latestReadings: [],
+  })
+})
 
 const packet = {
   type: 'aquamind_sensor' as const,
@@ -156,7 +166,7 @@ describe('ESP32 telemetry dashboard panel', () => {
 
     render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
     expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
-    expect(screen.getByText('Sensor data active')).toBeInTheDocument()
+    expect(screen.getByText('Receiving recent measurements')).toBeInTheDocument()
     expect(screen.getAllByText('Active').length).toBe(3)
     expect(screen.queryByText('esp32-devkit-01')).not.toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: 'Sequence' }))
@@ -173,9 +183,9 @@ describe('ESP32 telemetry dashboard panel', () => {
       received_at: '2026-11-03T00:00:00Z', packet,
     }])
     render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
-    expect(await screen.findByText(/No active sensor readings available/))
-      .toBeInTheDocument()
-    expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+    expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
+    expect(screen.getByText('No current measurements')).toBeInTheDocument()
+    expect(screen.getAllByText('Last saved')).toHaveLength(3)
     expect(screen.queryByText('Active')).not.toBeInTheDocument()
   })
 
@@ -196,8 +206,87 @@ describe('ESP32 telemetry dashboard panel', () => {
       },
     }])
     render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
-    expect(await screen.findByText('Sensor data active')).toBeInTheDocument()
+    expect(await screen.findByText('Receiving recent measurements')).toBeInTheDocument()
     expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+  })
+
+
+  it('displays saved registered readings when there are no ESP32 archive packets', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([])
+    vi.mocked(loadSystemSensorOverview).mockResolvedValue({
+      sensors: [{
+        id: 'secret-sensor-uuid', system_id: 'system-1',
+        name: 'Tank water temperature', sensor_type: 'water_temperature',
+        measurement_type: 'temperature', location_type: 'tank', location_id: null,
+        unit: '°C', hardware_identifier: null, is_simulated: false,
+        is_enabled: true, sampling_interval_seconds: 30,
+        calibration_status: 'pending',
+        created_at: '2026-11-03T00:00:00Z',
+        updated_at: '2026-11-03T00:00:00Z',
+      }],
+      latestReadings: [{
+        id: 'reading-secret', sensor_id: 'secret-sensor-uuid',
+        recorded_at: '2026-11-03T00:00:00Z',
+        value_numeric: 25.4, unit: '°C', quality_status: 'good',
+        source: 'hardware', sequence_number: 2,
+        created_at: '2026-11-03T00:00:00Z',
+      }],
+    })
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('25.40 °C')).toBeInTheDocument()
+    expect(screen.getByText('Water temperature')).toBeInTheDocument()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.queryByText('secret-sensor-uuid')).not.toBeInTheDocument()
+  })
+
+  it('keeps unverified pH/TDS out of registered current readings', async () => {
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([])
+    vi.mocked(loadSystemSensorOverview).mockResolvedValue({
+      sensors: [{
+        id: 'ph-sensor', system_id: 'system-1', name: 'Uncalibrated probe',
+        sensor_type: 'ph', measurement_type: 'ph', location_type: 'tank',
+        location_id: null, unit: 'pH', hardware_identifier: null,
+        is_simulated: false, is_enabled: true, sampling_interval_seconds: 30,
+        calibration_status: 'pending', created_at: '2026-11-03T00:00:00Z',
+        updated_at: '2026-11-03T00:00:00Z',
+      }],
+      latestReadings: [{
+        id: 'old-ph', sensor_id: 'ph-sensor',
+        recorded_at: '2026-11-03T00:00:00Z', value_numeric: 17.45,
+        unit: 'pH', quality_status: 'good', source: 'hardware',
+        sequence_number: 1, created_at: '2026-11-03T00:00:00Z',
+      }],
+    })
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText(/No saved sensor values yet/)).toBeInTheDocument()
+    expect(screen.queryByText('17.45')).not.toBeInTheDocument()
+  })
+
+  it('marks older registered readings as last saved, not live', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:10:00Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([])
+    vi.mocked(loadSystemSensorOverview).mockResolvedValue({
+      sensors: [{
+        id: 'temp', system_id: 'system-1', name: 'Water temperature',
+        sensor_type: 'water_temperature', measurement_type: 'temperature',
+        location_type: 'tank', location_id: null, unit: '°C',
+        hardware_identifier: null, is_simulated: false, is_enabled: true,
+        sampling_interval_seconds: 10, calibration_status: 'pending',
+        created_at: '2026-11-03T00:00:00Z',
+        updated_at: '2026-11-03T00:00:00Z',
+      }],
+      latestReadings: [{
+        id: 'saved-temp', sensor_id: 'temp',
+        recorded_at: '2026-11-03T00:00:00Z', value_numeric: 25.4,
+        unit: '°C', quality_status: 'good', source: 'hardware',
+        sequence_number: 1, created_at: '2026-11-03T00:00:00Z',
+      }],
+    })
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('25.40 °C')).toBeInTheDocument()
+    expect(screen.getByText('Last saved')).toBeInTheDocument()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
   })
 
 })
