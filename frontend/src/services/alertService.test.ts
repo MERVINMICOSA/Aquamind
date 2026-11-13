@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { apiRequest } from './apiClient'
-import { loadAlertHistoryPage } from './alertService'
+import { loadAlertHistoryPage, updateAlertLifecycle } from './alertService'
 
 vi.mock('./apiClient', () => ({ apiRequest: vi.fn() }))
 beforeEach(() => vi.resetAllMocks())
@@ -26,4 +26,27 @@ it('propagates request errors instead of reporting empty history', async () => {
   const error = new Error('Unavailable')
   vi.mocked(apiRequest).mockRejectedValueOnce(error)
   await expect(loadAlertHistoryPage('s', 0)).rejects.toBe(error)
+})
+
+
+it('sends only the lifecycle request and server-owned metadata is never forged', async () => {
+  const changed = { id: 'alert-1', status: 'acknowledged' }
+  vi.mocked(apiRequest).mockResolvedValueOnce(changed)
+  expect(await updateAlertLifecycle('alert/1', 'acknowledged')).toBe(changed)
+  expect(apiRequest).toHaveBeenCalledExactlyOnceWith('alerts/alert%2F1', {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'acknowledged' }),
+  })
+})
+
+it('requires a caller-supplied reason to be sent for resolution', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce({ id: 'a', status: 'resolved' })
+  await updateAlertLifecycle('a', 'resolved', 'Probe recalibrated and checked')
+  expect(apiRequest).toHaveBeenCalledExactlyOnceWith('alerts/a', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status: 'resolved',
+      resolution_reason: 'Probe recalibrated and checked',
+    }),
+  })
 })

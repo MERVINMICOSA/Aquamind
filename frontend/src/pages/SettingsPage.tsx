@@ -412,8 +412,9 @@ export function SettingsPage() {
           <p
             className="page-description"
           >
-            Review and manage persisted key/value
-            configuration for each AquaMind system.
+            Manage system-level saved configuration notes and values.
+            Hardware setup, sensor calibration, and servo feeding are
+            configured separately.
           </p>
         </div>
 
@@ -468,6 +469,38 @@ export function SettingsPage() {
           </select>
         </label>
       </div>
+
+      <section className="surface-panel" aria-labelledby="settings-guide-heading">
+        <div>
+          <p className="eyebrow">Page guide</p>
+          <h2 id="settings-guide-heading">What Settings is for</h2>
+          <p>
+            Save and review application key/value records associated with
+            the selected AquaMind system. These stored values are not
+            automatically applied to the Raspberry Pi hardware or the
+            ESP32 firmware.
+          </p>
+          <h3>Setup checklist</h3>
+          <ul>
+            <li>Configure the Raspberry Pi's ESP32 USB serial connection
+              in backend runtime environment settings, including its
+              port, baud rate, device ID, and system ID.</li>
+            <li>Verify the pH and TDS calibration before making
+              water-quality decisions from those measurements.</li>
+            <li>Use Feeding to configure the fish-feeder record,
+              schedule, servo dispenser calibration, and fish population.</li>
+            <li>Use Alerts to review warnings; configure
+              sensor thresholds through the supported alert-threshold
+              backend, not by inventing generic setting keys.</li>
+          </ul>
+          <p>
+            The external water-circulation pump operates independently;
+            no saved setting here can start or stop it. Do not store
+            API secrets, passwords, or device credentials in the
+            general key/value settings table.
+          </p>
+        </div>
+      </section>
 
 
       {
@@ -549,7 +582,8 @@ export function SettingsPage() {
                   Values are stored exactly as strings together
                   with their persisted value-type label. The
                   backend does not define a fixed value-type
-                  vocabulary.
+                  vocabulary. Adding a key alone does not
+                  activate any feature or configure a device.
                 </p>
               </div>
 
