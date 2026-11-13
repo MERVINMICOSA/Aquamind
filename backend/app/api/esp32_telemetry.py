@@ -25,7 +25,7 @@ router = APIRouter(
 
 # Search only supported numeric measurements. The wire protocol may contain
 # unverified estimates; deliberately omit them from normal history search.
-Historical pH/TDS values are device claims, never server calibration proof.
+# Historical pH/TDS values are device claims, never server calibration proof.
 HistoricalField = Literal[
     "water_temp_c", "ph", "tds_ppm", "water_level_pct",
     "water_height_cm", "distance_cm", "air_temp_c", "humidity_pct",
