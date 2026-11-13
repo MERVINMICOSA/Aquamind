@@ -13,9 +13,10 @@ import { SensorTrendChart } from '../components/sensors/SensorTrendChart'
 import './SensorHistoryPage.css'
 
 const PAGE_SIZE = 25
+type MeasurementField = Exclude<Esp32HistoryField, 'all'>
 
 const FIELDS: {
-  value: Esp32HistoryField
+  value: MeasurementField
   label: string
   unit: string
   rawKey: keyof Esp32RawReadings
@@ -35,23 +36,18 @@ type HistoryFilters = {
   field: Esp32HistoryField
   from: string
   to: string
-  min: string
-  max: string
 }
 
 const DEFAULT_FILTERS: HistoryFilters = {
-  field: 'water_temp_c',
+  field: 'all',
   from: '',
   to: '',
-  min: '',
-  max: '',
 }
 
 function localStartIso(day: string): string | undefined {
   if (!day) return undefined
   const date = new Date(`${day}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return undefined
-  return date.toISOString()
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
 function localEndExclusiveIso(day: string): string | undefined {
@@ -69,10 +65,10 @@ function formatTime(value: string): string {
 
 function packetMeasurement(
   item: Esp32Telemetry,
-  field: Esp32HistoryField,
+  field: MeasurementField,
 ): { value: number | null; detail: string } {
   const spec = FIELDS.find(candidate => candidate.value === field)
-  if (!spec) return { value: null, detail: 'Unsupported field' }
+  if (!spec) return { value: null, detail: 'Unsupported sensor' }
 
   const raw = item.packet.raw_readings?.[spec.rawKey]
   if (raw && raw.status !== 'ok') {
@@ -81,16 +77,34 @@ function packetMeasurement(
 
   const value = item.packet[field]
   if (value === null || !Number.isFinite(value)) {
-    return { value: null, detail: 'No usable reading' }
+    if (field === 'ph' && !item.packet.ph_calibrated) {
+      return { value: null, detail: 'Not calibrated' }
+    }
+    if (field === 'tds_ppm' && !item.packet.tds_calibrated) {
+      return { value: null, detail: 'Not calibrated' }
+    }
+    return { value: null, detail: 'No reading' }
   }
 
-  // Firmware flags are diagnostic claims, not audited AquaMind calibration.
+  // Firmware flags alone do not prove independently verified calibration.
   if (field === 'ph' || field === 'tds_ppm') {
     const claimed = field === 'ph' ? item.packet.ph_calibrated : item.packet.tds_calibrated
-    if (!claimed) return { value: null, detail: 'Device has not calibrated this reading' }
+    if (!claimed) return { value: null, detail: 'Not calibrated' }
     return { value, detail: 'Device reported — not independently verified' }
   }
   return { value, detail: 'Archived ESP32 reading' }
+}
+
+function displayValue(
+  measurement: ReturnType<typeof packetMeasurement>,
+  field: MeasurementField,
+): string {
+  if (measurement.value === null) {
+    return measurement.detail === 'No reading' ? '—' : measurement.detail
+  }
+  const config = FIELDS.find(candidate => candidate.value === field)
+  const digits = field === 'tds_ppm' ? 0 : 2
+  return `${measurement.value.toFixed(digits)} ${config?.unit ?? ''}`.trim()
 }
 
 export function SensorHistoryPage() {
@@ -117,7 +131,9 @@ export function SensorHistoryPage() {
     void listSystems().then(data => {
       if (!active) return
       setSystems(data)
-      setSystemId(data[0]?.id ?? '')
+      // The operator no longer configures a system ID in History. Prefer the
+      // active AquaMind system, falling back to the first configured system.
+      setSystemId((data.find(system => system.is_active) ?? data[0])?.id ?? '')
       setSystemsStatus('ready')
     }).catch(() => {
       if (active) setSystemsStatus('error')
@@ -125,14 +141,11 @@ export function SensorHistoryPage() {
     return () => { active = false }
   }, [])
 
-  // Identity of the actual result set, including the chosen system and page.
-  // Prevent old-system rows from appearing while a new search is loading.
   const queryKey = JSON.stringify([systemId, applied, page, refreshCounter])
   useEffect(() => {
     if (!systemId) return
     let active = true
     let busy = false
-
     const refresh = async () => {
       if (busy) return
       busy = true
@@ -142,8 +155,6 @@ export function SensorHistoryPage() {
           field: applied.field,
           startAt: localStartIso(applied.from),
           endAt: localEndExclusiveIso(applied.to),
-          minValue: applied.min === '' ? undefined : Number(applied.min),
-          maxValue: applied.max === '' ? undefined : Number(applied.max),
           offset: page * PAGE_SIZE,
           limit: PAGE_SIZE,
         })
@@ -161,7 +172,7 @@ export function SensorHistoryPage() {
     }
 
     void refresh()
-    // The first page follows incoming saved packets; other pages stay stable.
+    // Keep the first page dynamic. Older pages stay fixed while browsing.
     const interval = page === 0
       ? window.setInterval(() => { void refresh() }, 15000)
       : null
@@ -172,38 +183,32 @@ export function SensorHistoryPage() {
   }, [systemId, applied, page, queryKey])
 
   const visible = loaded?.key === queryKey ? loaded : null
-  const config = FIELDS.find(item => item.value === applied.field) ?? FIELDS[0]!
+  const selectedField = applied.field === 'all'
+    ? null
+    : FIELDS.find(item => item.value === applied.field) ?? null
   const items = visible?.data.items ?? []
-  const chartRows: DashboardSensorReading[] = (() => {
-    return items.flatMap(item => {
-      const measurement = packetMeasurement(item, config.value)
-      if (measurement.value === null) return []
-      return [{
-        id: item.id,
-        sensor_id: config.value,
-        recorded_at: item.received_at,
-        value_numeric: measurement.value,
-        unit: config.unit,
-        quality_status: config.diagnostic ? 'unverified' : 'good',
-        source: 'hardware',
-        sequence_number: item.packet.sequence,
-        created_at: item.received_at,
-      }]
-    })
-  })()
+  const chartRows: DashboardSensorReading[] = selectedField === null
+    ? []
+    : items.flatMap(item => {
+        const measurement = packetMeasurement(item, selectedField.value)
+        if (measurement.value === null) return []
+        return [{
+          id: item.id,
+          sensor_id: selectedField.value,
+          recorded_at: item.received_at,
+          value_numeric: measurement.value,
+          unit: selectedField.unit,
+          quality_status: selectedField.diagnostic ? 'unverified' : 'good',
+          source: 'hardware',
+          sequence_number: item.packet.sequence,
+          created_at: item.received_at,
+        }]
+      })
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (draft.from && draft.to && draft.from > draft.to) {
       setValidationError('Start date cannot be after end date.')
-      return
-    }
-    if (
-      (draft.min !== '' && !Number.isFinite(Number(draft.min))) ||
-      (draft.max !== '' && !Number.isFinite(Number(draft.max))) ||
-      (draft.min !== '' && draft.max !== '' && Number(draft.min) > Number(draft.max))
-    ) {
-      setValidationError('Enter valid minimum and maximum values (minimum must not exceed maximum).')
       return
     }
     setValidationError(null)
@@ -212,6 +217,8 @@ export function SensorHistoryPage() {
     setRefreshCounter(value => value + 1)
   }
 
+  const system = systems.find(item => item.id === systemId)
+
   return (
     <section className="section-page">
       <header className="sensors-page-heading">
@@ -219,8 +226,8 @@ export function SensorHistoryPage() {
           <p className="eyebrow">Historical monitoring</p>
           <h1>Sensor History</h1>
           <p className="page-description">
-            Search past measurements saved by AquaMind. Dates use your browser's
-            local timezone; records are timestamped when the Raspberry Pi received them.
+            View all saved ESP32 sensor readings together or choose one sensor.
+            Dates use your browser's local timezone; timestamps reflect Raspberry Pi receipt time.
           </p>
         </div>
         <Link to="/sensors" className="sensor-detail-link">Current sensors</Link>
@@ -231,20 +238,12 @@ export function SensorHistoryPage() {
       {systemsStatus === 'ready' && systems.length === 0 && (
         <p className="empty-state">No aquaponics system is configured yet.</p>
       )}
-      {systems.length > 0 && (
+      {system && (
         <>
+          <p className="page-description">
+            Showing history for <strong>{system.name}</strong>
+          </p>
           <form className="sensor-history-filters surface-panel" onSubmit={submitSearch}>
-            <label>
-              Aquaponics system
-              <select
-                value={systemId}
-                onChange={event => { setSystemId(event.target.value); setPage(0) }}
-              >
-                {systems.map(system => (
-                  <option value={system.id} key={system.id}>{system.name}</option>
-                ))}
-              </select>
-            </label>
             <label>
               Sensor
               <select
@@ -253,6 +252,7 @@ export function SensorHistoryPage() {
                   ...current, field: event.target.value as Esp32HistoryField,
                 }))}
               >
+                <option value="all">All data</option>
                 {FIELDS.map(field => (
                   <option value={field.value} key={field.value}>{field.label}</option>
                 ))}
@@ -272,22 +272,6 @@ export function SensorHistoryPage() {
                 onChange={event => setDraft(current => ({ ...current, to: event.target.value }))}
               />
             </label>
-            <label>
-              Minimum value
-              <input
-                type="number" step="any" placeholder="Any"
-                value={draft.min}
-                onChange={event => setDraft(current => ({ ...current, min: event.target.value }))}
-              />
-            </label>
-            <label>
-              Maximum value
-              <input
-                type="number" step="any" placeholder="Any"
-                value={draft.max}
-                onChange={event => setDraft(current => ({ ...current, max: event.target.value }))}
-              />
-            </label>
             <div className="sensor-history-actions">
               <button type="submit">Search readings</button>
               <button type="button" onClick={() => {
@@ -304,11 +288,10 @@ export function SensorHistoryPage() {
             {validationError && <p role="alert">{validationError}</p>}
           </form>
 
-          {config.diagnostic && (
+          {(applied.field === 'all' || selectedField?.diagnostic) && (
             <p className="sensor-history-warning" role="note">
-              pH/TDS values in this archive are reported by ESP32 firmware.
-              They are not independently verified by the AquaMind calibration database
-              and must not be used as validated water-quality measurements.
+              Archived pH/TDS values are device-reported and not independently
+              verified by AquaMind. Unverified estimates are not displayed as calibrated values.
             </p>
           )}
 
@@ -318,9 +301,9 @@ export function SensorHistoryPage() {
             <section className="sensor-history-results surface-panel">
               <div className="sensor-history-results-heading">
                 <div>
-                  <h2>{config.label} history</h2>
+                  <h2>{selectedField?.label ?? 'All sensor data'} history</h2>
                   <p className="page-description">
-                    {visible.data.total.toLocaleString()} matching saved readings
+                    {visible.data.total.toLocaleString()} matching saved {selectedField === null ? 'packets' : 'readings'}
                     {' · '}Updated {formatTime(visible.checkedAt)}
                   </p>
                 </div>
@@ -334,32 +317,57 @@ export function SensorHistoryPage() {
                 </div>
               ) : (
                 <>
-                  <div className="sensor-history-chart">
-                    <h3>Trend for this page</h3>
-                    <SensorTrendChart readings={chartRows} unit={config.unit} />
-                  </div>
+                  {selectedField !== null && (
+                    <div className="sensor-history-chart">
+                      <h3>Trend for this page</h3>
+                      <SensorTrendChart readings={chartRows} unit={selectedField.unit} />
+                    </div>
+                  )}
+                  {selectedField === null && (
+                    <p className="page-description">
+                      All data shows each archived packet as one row, with a column
+                      for each sensor. Choose an individual sensor to view its trend.
+                    </p>
+                  )}
                   <div className="sensor-history-table-wrap">
                     <table className="sensor-history-table">
                       <thead>
                         <tr>
                           <th scope="col">Received</th>
-                          <th scope="col">Reading</th>
-                          <th scope="col">Status</th>
+                          {selectedField === null
+                            ? FIELDS.map(field => (
+                                <th scope="col" key={field.value}>{field.label}</th>
+                              ))
+                            : <>
+                                <th scope="col">Reading</th>
+                                <th scope="col">Status</th>
+                              </>}
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map(item => {
-                          const measurement = packetMeasurement(item, config.value)
-                          return (
-                            <tr key={item.id}>
-                              <td>{formatTime(item.received_at)}</td>
-                              <td>{measurement.value === null
-                                ? '—'
-                                : `${measurement.value.toFixed(config.value === 'tds_ppm' ? 0 : 2)} ${config.unit}`}</td>
-                              <td>{measurement.detail}</td>
-                            </tr>
-                          )
-                        })}
+                        {items.map(item => (
+                          <tr key={item.id}>
+                            <td>{formatTime(item.received_at)}</td>
+                            {selectedField === null
+                              ? FIELDS.map(field => {
+                                  const measurement = packetMeasurement(item, field.value)
+                                  return (
+                                    <td key={field.value} title={measurement.detail}>
+                                      {displayValue(measurement, field.value)}
+                                    </td>
+                                  )
+                                })
+                              : (() => {
+                                  const measurement = packetMeasurement(item, selectedField.value)
+                                  return (
+                                    <>
+                                      <td>{displayValue(measurement, selectedField.value)}</td>
+                                      <td>{measurement.detail}</td>
+                                    </>
+                                  )
+                                })()}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -376,9 +384,9 @@ export function SensorHistoryPage() {
                 >Next page</button>
               </div>
               <p className="page-description">
-                History remains available when the ESP32 is offline. Only the first
-                results page auto-refreshes every 15 seconds. The trend shows
-                measurements from the current page, not the entire archive.
+                Past data remains available when the ESP32 is offline. Only the
+                first results page refreshes automatically every 15 seconds.
+                Pagination counts saved packets, not individual sensor values.
               </p>
             </section>
           )}
