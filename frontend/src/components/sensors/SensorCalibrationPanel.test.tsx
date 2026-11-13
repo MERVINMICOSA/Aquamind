@@ -34,7 +34,7 @@ it('reports missing calibration records without claiming sensor calibration', as
   expect(await screen.findByText('No calibration records were returned for this sensor.'))
     .toBeInTheDocument()
   expect(screen.getByText(/is not marked as verified/)).toBeInTheDocument()
-  expect(screen.getByText(/does not/)).toBeDefined()
+  expect(screen.getByText(/saving a record does not/)).toBeDefined()
 })
 
 it('shows only the selected sensor calibration history and does not change firmware', async () => {
@@ -52,7 +52,7 @@ it('shows only the selected sensor calibration history and does not change firmw
   expect(table).toHaveTextContent('verified')
   expect(table).not.toHaveTextContent('other')
   expect(listSensorCalibrationRecords).toHaveBeenCalledWith('sensor-1')
-  expect(screen.getByText(/does not/)).toHaveTextContent(/does not/)
+  expect(screen.getByText(/saving a record does not/)).toHaveTextContent(/does not/)
 })
 
 it('flags mismatch between registered verified status and latest calibration record', async () => {
