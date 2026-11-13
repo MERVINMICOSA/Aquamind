@@ -20,6 +20,8 @@ from app.services.alert_evaluator import evaluate_alert_severity
 async def process_sensor_reading(
     session: AsyncSession,
     reading: SensorReading,
+    *,
+    commit: bool = True,
 ) -> Alert | None:
     """
     Evaluate a sensor reading and create an Alert when appropriate.
@@ -27,6 +29,10 @@ async def process_sensor_reading(
     Returns:
         Alert: newly created alert
         None: when no alert should be created
+
+    commit=False allows an upstream packet-ingestion transaction to own the
+    commit. This keeps the USB packet, mapped readings, and alerts atomic.
+    The ordinary HTTP and hardware paths retain commit=True by default.
     """
 
     # ------------------------------------------------------------
@@ -175,7 +181,10 @@ async def process_sensor_reading(
 
     session.add(alert)
 
-    await session.commit()
-    await session.refresh(alert)
+    if commit:
+        await session.commit()
+        await session.refresh(alert)
+    else:
+        await session.flush()
 
     return alert
