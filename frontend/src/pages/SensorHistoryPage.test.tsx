@@ -5,12 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listSystems } from '../services/dashboardService'
 import { searchEsp32Telemetry } from '../services/esp32TelemetryService'
 import { SensorHistoryPage } from './SensorHistoryPage'
+import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
 
 vi.mock('../services/dashboardService', () => ({
   listSystems: vi.fn(),
 }))
 vi.mock('../services/esp32TelemetryService', () => ({
   searchEsp32Telemetry: vi.fn(),
+}))
+vi.mock('../utils/esp32CsvExport', () => ({
+  downloadEsp32HistoryCsv: vi.fn(),
 }))
 vi.mock('../components/sensors/SensorTrendChart', () => ({
   SensorTrendChart: ({ readings }: { readings: unknown[] }) => (
@@ -209,6 +213,39 @@ describe('simplified ESP32 history', () => {
     mount()
     expect(await screen.findByText('Sensor read: disconnected')).toBeInTheDocument()
     expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+  })
+
+  it('exports every matching page in CSV rather than just the visible 25', async () => {
+    vi.mocked(searchEsp32Telemetry).mockImplementation(async filters => {
+      if (filters.limit === 25) {
+        return { items: [ITEM], total: 150, limit: 25, offset: 0 }
+      }
+      const count = filters.offset === 0 ? 100 : 50
+      return {
+        items: Array.from({ length: count }, (_, i) => ({
+          ...ITEM, id: `row-${filters.offset + i}`,
+        })),
+        total: 150, limit: 100, offset: filters.offset,
+      }
+    })
+    mount()
+    expect(await screen.findByText(/150 matching saved packets/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered CSV' }))
+    await waitFor(() => expect(downloadEsp32HistoryCsv).toHaveBeenCalled())
+    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0][0]).toHaveLength(150)
+    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0][1]).toBe('all')
+    expect(screen.getByText(/Downloaded 150 saved packets as CSV/)).toBeInTheDocument()
+  })
+
+  it('prevents silent truncation of very large history exports', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [ITEM], total: 50001, limit: 25, offset: 0,
+    })
+    mount()
+    expect(await screen.findByText(/50,001 matching saved packets/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered CSV' }))
+    expect(await screen.findByText(/More than 50,000 matching packets/)).toBeInTheDocument()
+    expect(downloadEsp32HistoryCsv).not.toHaveBeenCalled()
   })
 
   it('renders an honest empty state when no matching saved packets exist', async () => {
