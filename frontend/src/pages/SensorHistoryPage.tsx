@@ -10,6 +10,7 @@ import {
 import type { AquaponicsSystem, DashboardSensorReading } from '../types/dashboard'
 import type { Esp32RawReadings, Esp32Telemetry } from '../types/esp32Telemetry'
 import { SensorTrendChart } from '../components/sensors/SensorTrendChart'
+import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
 import './SensorHistoryPage.css'
 
 const PAGE_SIZE = 25
@@ -125,6 +126,8 @@ export function SensorHistoryPage() {
   } | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -217,6 +220,51 @@ export function SensorHistoryPage() {
     setRefreshCounter(value => value + 1)
   }
 
+  async function exportFilteredHistory() {
+    if (!systemId || exporting) return
+    setExporting(true)
+    setExportMessage(null)
+    const allRows: Esp32Telemetry[] = []
+    // Exclude arrivals after export started so offset pagination cannot shift.
+    const snapshotEnd = new Date().toISOString()
+    const requestedEnd = localEndExclusiveIso(applied.to)
+    const endAt = requestedEnd && Date.parse(requestedEnd) < Date.parse(snapshotEnd)
+      ? requestedEnd : snapshotEnd
+    try {
+      const batchSize = 100
+      let offset = 0
+      let total = 0
+      do {
+        const result = await searchEsp32Telemetry({
+          systemId, field: applied.field,
+          startAt: localStartIso(applied.from),
+          endAt,
+          offset, limit: batchSize,
+        })
+        total = result.total
+        if (total > 50000) {
+          throw new Error('More than 50,000 matching packets. Narrow the date range before exporting.')
+        }
+        if (result.items.length === 0 && offset < total) {
+          throw new Error('Some saved packets could not be retrieved. Try again.')
+        }
+        allRows.push(...result.items)
+        offset += result.items.length
+      } while (offset < total)
+
+      if (allRows.length === 0) {
+        setExportMessage('No saved readings match the current filters.')
+      } else {
+        downloadEsp32HistoryCsv(allRows, applied.field)
+        setExportMessage(`Downloaded ${allRows.length.toLocaleString()} saved packets as CSV.`)
+      }
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : 'Unable to export history.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const system = systems.find(item => item.id === systemId)
 
   return (
@@ -307,9 +355,16 @@ export function SensorHistoryPage() {
                     {' · '}Updated {formatTime(visible.checkedAt)}
                   </p>
                 </div>
-                <span>Page {page + 1} of {Math.max(1, Math.ceil(visible.data.total / PAGE_SIZE))}</span>
+                <div className="sensor-history-export">
+                  <span>Page {page + 1} of {Math.max(1, Math.ceil(visible.data.total / PAGE_SIZE))}</span>
+                  <button type="button" disabled={exporting || visible.data.total === 0}
+                    onClick={() => { void exportFilteredHistory() }}>
+                    {exporting ? 'Preparing CSV...' : 'Export filtered CSV'}
+                  </button>
+                </div>
               </div>
               {status === 'error' && <p role="alert">{errorMessage} Displaying the last loaded results.</p>}
+              {exportMessage && <p className="sensor-history-export-status" role="status">{exportMessage}</p>}
               {items.length === 0 ? (
                 <div className="empty-state">
                   <p>No saved readings match this search.</p>
@@ -387,6 +442,7 @@ export function SensorHistoryPage() {
                 Past data remains available when the ESP32 is offline. Only the
                 first results page refreshes automatically every 15 seconds.
                 Pagination counts saved packets, not individual sensor values.
+                CSV export includes all matching saved packets across pages (up to 50,000), not just the current page.
               </p>
             </section>
           )}
