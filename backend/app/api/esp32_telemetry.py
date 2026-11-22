@@ -5,7 +5,7 @@ the attached USB device locally in Esp32SerialWorker.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -13,14 +13,81 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user, get_db_session
+from app.api.dependencies import get_current_user, get_db_session, require_admin
+from app.models.esp32_capture import Esp32CaptureState
 from app.models.esp32_telemetry import Esp32Telemetry
-from app.schemas.esp32_telemetry import Esp32TelemetryResponse, Esp32TelemetrySearchResponse
+from app.models.system import AquaponicsSystem
+from app.schemas.esp32_telemetry import (
+    Esp32TelemetryResponse, Esp32TelemetrySearchResponse,
+    Esp32CaptureUpdate, Esp32CaptureResponse,
+)
 
 router = APIRouter(
     prefix="/esp32", tags=["ESP32 telemetry"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+def _capture_view(system_id: UUID, state: Esp32CaptureState | None) -> dict:
+    if state is None:
+        return {"system_id": system_id, "mode": "live", "interval_minutes": 5}
+    return {
+        "system_id": system_id,
+        "device_id": state.device_id,
+        "mode": state.mode,
+        "interval_minutes": state.interval_minutes,
+        "latest_received_at": state.latest_received_at,
+        "last_saved_at": state.last_saved_at,
+        "last_saved_scheduled_at": state.last_saved_scheduled_at,
+        "next_save_at": state.next_save_at,
+    }
+
+
+async def _check_system(session: AsyncSession, system_id: UUID) -> None:
+    system = await session.get(AquaponicsSystem, system_id)
+    if system is None or system.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Aquaponics system not found")
+
+
+@router.get("/capture", response_model=Esp32CaptureResponse)
+async def get_esp32_capture(
+    system_id: UUID, session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _check_system(session, system_id)
+    state = await session.get(Esp32CaptureState, system_id)
+    return _capture_view(system_id, state)
+
+
+@router.put(
+    "/capture", response_model=Esp32CaptureResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def update_esp32_capture(
+    system_id: UUID,
+    update: Esp32CaptureUpdate,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Only administrators may change collection; never accepts arbitrary keys."""
+    await _check_system(session, system_id)
+    state = await session.get(Esp32CaptureState, system_id, with_for_update=True)
+    if state is None:
+        state = Esp32CaptureState(system_id=system_id, mode="live", interval_minutes=5)
+        session.add(state)
+
+    if state.mode != update.mode or state.interval_minutes != update.interval_minutes:
+        now = datetime.now(timezone.utc)
+        state.mode = update.mode
+        state.interval_minutes = update.interval_minutes
+        # A changed setting starts a NEW interval. Old packets cannot count
+        # toward it, and the timer never fabricates a missed reading.
+        state.window_started_at = now if update.mode == "timed" else None
+        state.next_save_at = (
+            now + timedelta(minutes=update.interval_minutes)
+            if update.mode == "timed" else None
+        )
+    await session.commit()
+    await session.refresh(state)
+    return _capture_view(system_id, state)
 
 
 # Search only supported numeric measurements. The wire protocol may contain
@@ -123,7 +190,22 @@ async def search_esp32_telemetry(
 async def latest_esp32_telemetry(
     system_id: UUID,
     session: AsyncSession = Depends(get_db_session),
-) -> Esp32Telemetry | None:
+) -> Esp32Telemetry | dict | None:
+    # Current monitoring must not depend on the selected archive frequency.
+    state = await session.get(Esp32CaptureState, system_id)
+    if (
+        state is not None and state.latest_packet is not None
+        and state.latest_received_at is not None
+        and state.latest_packet_id is not None
+    ):
+        return {
+            "id": state.latest_packet_id,
+            "system_id": system_id,
+            "received_at": state.latest_received_at,
+            "packet": state.latest_packet,
+        }
+    # Upgrade compatibility: show pre-migration archived packets until
+    # the first new USB packet is received.
     query = (
         select(Esp32Telemetry)
         .where(Esp32Telemetry.system_id == system_id)
