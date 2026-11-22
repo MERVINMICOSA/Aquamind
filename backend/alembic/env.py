@@ -21,6 +21,7 @@ from app.models import other  # noqa: F401
 from app.models import refill  # noqa: F401
 from app.models import sensors  # noqa: F401
 from app.models import esp32_telemetry  # noqa: F401
+from app.models import esp32_capture  # noqa: F401
 from app.models import system  # noqa: F401
 
 
