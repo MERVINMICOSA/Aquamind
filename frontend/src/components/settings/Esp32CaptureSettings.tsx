@@ -29,7 +29,7 @@ export function Esp32CaptureSettings({ systemId, canManage }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [clock, setClock] = useState(Date.now())
+  const [clock, setClock] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -51,10 +51,6 @@ export function Esp32CaptureSettings({ systemId, canManage }: Props) {
         first = false
       }
     }
-    setStatus('loading')
-    setConfig(null)
-    setError(null)
-    setSuccess(false)
     void refresh()
     const refreshTimer = window.setInterval(() => { void refresh() }, 10000)
     const clockTimer = window.setInterval(() => setClock(Date.now()), 1000)
