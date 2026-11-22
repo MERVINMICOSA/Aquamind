@@ -220,20 +220,21 @@ describe('simplified ESP32 history', () => {
       if (filters.limit === 25) {
         return { items: [ITEM], total: 150, limit: 25, offset: 0 }
       }
-      const count = filters.offset === 0 ? 100 : 50
+      const offset = filters.offset ?? 0
+      const count = offset === 0 ? 100 : 50
       return {
         items: Array.from({ length: count }, (_, i) => ({
-          ...ITEM, id: `row-${filters.offset + i}`,
+          ...ITEM, id: `row-${offset + i}`,
         })),
-        total: 150, limit: 100, offset: filters.offset,
+        total: 150, limit: 100, offset,
       }
     })
     mount()
     expect(await screen.findByText(/150 matching saved packets/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Export filtered CSV' }))
     await waitFor(() => expect(downloadEsp32HistoryCsv).toHaveBeenCalled())
-    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0][0]).toHaveLength(150)
-    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0][1]).toBe('all')
+    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0]![0]).toHaveLength(150)
+    expect(vi.mocked(downloadEsp32HistoryCsv).mock.calls[0]![1]).toBe('all')
     expect(screen.getByText(/Downloaded 150 saved packets as CSV/)).toBeInTheDocument()
   })
 
