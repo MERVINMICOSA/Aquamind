@@ -103,3 +103,41 @@
   .sensor-history-filters { grid-template-columns: 1fr; }
   .sensor-history-pagination { justify-content: flex-start; }
 }
+
+.sensor-history-export {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: .88rem;
+  color: var(--color-text-muted, #61706a);
+}
+.sensor-history-export button {
+  padding: 10px 16px;
+  border: 1px solid var(--color-accent, #294f43);
+  border-radius: 9px;
+  color: #fff;
+  background: var(--color-accent, #294f43);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sensor-history-export button:hover:not(:disabled) {
+  background: var(--color-accent-text, #214238);
+}
+.sensor-history-export button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+.sensor-history-export-status {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, #dce5e1);
+  border-radius: 8px;
+  color: var(--color-text-muted, #61706a);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .sensor-history-export,
+  .sensor-history-export button { width: 100%; }
+}
