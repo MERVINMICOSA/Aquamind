@@ -10,16 +10,17 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Callable, Mapping
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.models.esp32_capture import Esp32CaptureState
 from app.models.esp32_telemetry import Esp32Telemetry
 from app.models.system import AquaponicsSystem
 from app.schemas.esp32_telemetry import Esp32SensorPacket
@@ -94,93 +95,229 @@ class SerialJsonFramer:
         return documents
 
 
-async def persist_esp32_packet(
-    session_factory: async_sessionmaker[AsyncSession],
-    *,
-    system_id: UUID,
-    expected_device_id: str,
-    packet: Esp32SensorPacket,
-    sensor_mapping: Mapping[str, UUID] | None = None,
-    auto_discover_sensors: bool = False,
-) -> str:
-    """Atomically store packet, opt-in mapped readings, and threshold alerts.
+# A disconnected sensor must not be archived as if it were current.
+# Continuous firmware reporting is expected to provide a newer packet.
+MAX_SAVE_PACKET_AGE_SECONDS = 45
 
-    Retries cannot create additional readings for an archived packet identity.
-    No sensor-triggered actuator automation runs from ESP32 ingestion.
-    Returns 'created', 'duplicate', 'conflict', or 'unavailable'.
-    """
-    if packet.device_id != expected_device_id:
-        return "conflict"
 
-    # Preserve the wire format as sent. New optional diagnostic fields should
-    # not be fabricated as null in legacy packets (or break retry deduplication).
-    contents = packet.model_dump(mode="json", exclude_unset=True)
-    identity = (
+def _aware(value: datetime) -> datetime:
+    """SQLite test dates may be naive even for timezone-aware columns."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _packet_identity(system_id: UUID, packet: Esp32SensorPacket):
+    return (
         Esp32Telemetry.system_id == system_id,
         Esp32Telemetry.device_id == packet.device_id,
         Esp32Telemetry.sequence == packet.sequence,
         Esp32Telemetry.uptime_ms == packet.uptime_ms,
     )
 
+
+async def _archive_packet(
+    session: AsyncSession, *,
+    system_id: UUID,
+    packet: Esp32SensorPacket,
+    received_at: datetime,
+    sensor_mapping: Mapping[str, UUID] | None,
+    auto_discover_sensors: bool,
+) -> str:
+    """Archive once and only then derive the optional registered readings."""
+    contents = packet.model_dump(mode="json", exclude_unset=True)
+    existing = (
+        await session.execute(select(Esp32Telemetry).where(*_packet_identity(system_id, packet)))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return "duplicate" if existing.packet == contents else "conflict"
+
+    session.add(Esp32Telemetry(
+        system_id=system_id,
+        device_id=packet.device_id,
+        sequence=packet.sequence,
+        uptime_ms=packet.uptime_ms,
+        packet=contents,
+        received_at=received_at,
+    ))
+    await session.flush()
+
+    mapping = (
+        await discover_sensor_mapping(session, system_id=system_id, packet=packet)
+        if auto_discover_sensors else sensor_mapping
+    )
+    if mapping:
+        readings = await build_sensor_readings(
+            session, system_id=system_id, packet=packet,
+            sensor_mapping=mapping, received_at=received_at,
+        )
+        session.add_all(readings)
+        await session.flush()
+        for reading in readings:
+            await process_sensor_reading(session, reading, commit=False)
+    return "created"
+
+
+async def _flush_timed(
+    session: AsyncSession, state: Esp32CaptureState, *,
+    now: datetime,
+    sensor_mapping: Mapping[str, UUID] | None,
+    auto_discover_sensors: bool,
+) -> str:
+    """Save the final pre-boundary packet; never substitute a post-boundary one.
+
+    Consume all elapsed boundaries without backfilling missing intervals.
+    Both serial ingestion and the one-second timer call this with a row lock.
+    """
+    if state.mode != "timed" or state.next_save_at is None:
+        return "not_due"
+
+    due = _aware(state.next_save_at)
+    if now < due:
+        return "not_due"
+
+    delta = timedelta(minutes=state.interval_minutes)
+    start = _aware(state.window_started_at) if state.window_started_at else due - delta
+    latest_time = _aware(state.latest_received_at) if state.latest_received_at else None
+    result = "skipped"
+
+    if (
+        state.latest_packet is not None
+        and latest_time is not None
+        and start <= latest_time < due
+        and 0 <= (due - latest_time).total_seconds() <= MAX_SAVE_PACKET_AGE_SECONDS
+    ):
+        packet = Esp32SensorPacket.model_validate(state.latest_packet)
+        result = await _archive_packet(
+            session, system_id=state.system_id, packet=packet,
+            received_at=latest_time,
+            sensor_mapping=sensor_mapping,
+            auto_discover_sensors=auto_discover_sensors,
+        )
+        if result == "created":
+            state.last_saved_at = latest_time
+            state.last_saved_scheduled_at = due
+        elif result == "conflict":
+            logger.warning("ESP32 timed capture found an archive identity conflict")
+
+    # Jump across downtime without repeatedly storing an old live packet.
+    steps = int((now - due).total_seconds() // delta.total_seconds()) + 1
+    state.window_started_at = due + delta * (steps - 1)
+    state.next_save_at = due + delta * steps
+    return result
+
+
+async def flush_esp32_interval(
+    session_factory: async_sessionmaker[AsyncSession], *,
+    system_id: UUID,
+    now: datetime | None = None,
+    sensor_mapping: Mapping[str, UUID] | None = None,
+    auto_discover_sensors: bool = False,
+) -> str:
+    """Durable timer tick, including after process restart or USB disconnect."""
+    current = _aware(now or datetime.now(timezone.utc))
+    async with session_factory() as session:
+        state = await session.get(Esp32CaptureState, system_id, with_for_update=True)
+        if state is None:
+            return "not_due"
+        result = await _flush_timed(
+            session, state, now=current, sensor_mapping=sensor_mapping,
+            auto_discover_sensors=auto_discover_sensors,
+        )
+        await session.commit()
+        return result
+
+
+async def persist_esp32_packet(
+    session_factory: async_sessionmaker[AsyncSession], *,
+    system_id: UUID,
+    expected_device_id: str,
+    packet: Esp32SensorPacket,
+    sensor_mapping: Mapping[str, UUID] | None = None,
+    auto_discover_sensors: bool = False,
+    received_at: datetime | None = None,
+) -> str:
+    """Accept validated USB telemetry, update live state, and archive by mode.
+
+    A single transaction holds the capture-state lock through due-boundary
+    selection, optional archive/registered readings and the latest state.
+    The archive's unique constraint still enforces idempotency on retries.
+    """
+    if packet.device_id != expected_device_id:
+        return "conflict"
+
+    current = _aware(received_at or datetime.now(timezone.utc))
+    contents = packet.model_dump(mode="json", exclude_unset=True)
     async with session_factory() as session:
         parent = await session.get(AquaponicsSystem, system_id)
         if parent is None or parent.deleted_at is not None:
             return "unavailable"
 
-        row = (
-            await session.execute(select(Esp32Telemetry).where(*identity))
-        ).scalar_one_or_none()
-        if row is not None:
-            return "duplicate" if row.packet == contents else "conflict"
-
-        received_at = datetime.now(timezone.utc)
-        session.add(Esp32Telemetry(
-            system_id=system_id,
-            device_id=packet.device_id,
-            sequence=packet.sequence,
-            uptime_ms=packet.uptime_ms,
-            packet=contents,
-            received_at=received_at,
-        ))
-
         try:
-            # Uniqueness is checked before deriving any readings. The
-            # packet/reading/alert changes are committed together.
-            await session.flush()
-
-            mapping = (
-                await discover_sensor_mapping(
-                    session, system_id=system_id, packet=packet,
+            state = await session.get(Esp32CaptureState, system_id, with_for_update=True)
+            if state is None:
+                # Legacy-safe: the default is Live until an admin chooses Timed.
+                state = Esp32CaptureState(
+                    system_id=system_id, device_id=packet.device_id,
+                    mode="live", interval_minutes=5,
                 )
-                if auto_discover_sensors
-                else sensor_mapping
-            )
-            if mapping:
-                readings = await build_sensor_readings(
-                    session,
-                    system_id=system_id,
-                    packet=packet,
-                    sensor_mapping=mapping,
-                    received_at=received_at,
-                )
-                session.add_all(readings)
+                session.add(state)
                 await session.flush()
 
-                for reading in readings:
-                    await process_sensor_reading(
-                        session,
-                        reading,
-                        commit=False,
-                    )
+            if state.device_id not in (None, packet.device_id):
+                return "conflict"
+            if (
+                state.latest_sequence == packet.sequence
+                and state.latest_uptime_ms == packet.uptime_ms
+            ):
+                return "duplicate" if state.latest_packet == contents else "conflict"
 
+            # Reject already-archived replays; they must not replace newer live data.
+            existing = (
+                await session.execute(
+                    select(Esp32Telemetry).where(*_packet_identity(system_id, packet))
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return "duplicate" if existing.packet == contents else "conflict"
+
+            # Important: commit the last packet BEFORE the new packet crosses
+            # a deadline. A packet after the deadline cannot be recorded as
+            # the last packet of the preceding window.
+            if state.mode == "timed":
+                if state.next_save_at is None:
+                    state.window_started_at = current
+                    state.next_save_at = current + timedelta(minutes=state.interval_minutes)
+                else:
+                    await _flush_timed(
+                        session, state, now=current,
+                        sensor_mapping=sensor_mapping,
+                        auto_discover_sensors=auto_discover_sensors,
+                    )
+            else:
+                await _archive_packet(
+                    session, system_id=system_id, packet=packet, received_at=current,
+                    sensor_mapping=sensor_mapping,
+                    auto_discover_sensors=auto_discover_sensors,
+                )
+                state.last_saved_at = current
+                state.last_saved_scheduled_at = None
+
+            state.device_id = packet.device_id
+            state.latest_packet_id = uuid4()
+            state.latest_sequence = packet.sequence
+            state.latest_uptime_ms = packet.uptime_ms
+            state.latest_packet = contents
+            state.latest_received_at = current
             await session.commit()
             return "created"
         except IntegrityError:
             await session.rollback()
-            row = (
-                await session.execute(select(Esp32Telemetry).where(*identity))
+            # Includes races with the unique archive identity and state insert.
+            existing = (
+                await session.execute(
+                    select(Esp32Telemetry).where(*_packet_identity(system_id, packet))
+                )
             ).scalar_one_or_none()
-            if row is not None and row.packet == contents:
+            if existing is not None and existing.packet == contents:
                 return "duplicate"
             return "conflict"
 
@@ -217,6 +354,7 @@ class Esp32SerialWorker:
         self.sensor_mapping = dict(sensor_mapping or {})
         self.auto_discover_sensors = auto_discover_sensors
         self._task: asyncio.Task | None = None
+        self._capture_task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
 
     async def start(self) -> None:
@@ -224,12 +362,31 @@ class Esp32SerialWorker:
             return
         self._stopping.clear()
         self._task = asyncio.create_task(self._run(), name="esp32-usb-serial")
+        self._capture_task = asyncio.create_task(self._capture_loop(), name="esp32-history-timer")
 
     async def stop(self) -> None:
         self._stopping.set()
         if self._task is not None:
             await self._task
             self._task = None
+        if self._capture_task is not None:
+            await self._capture_task
+            self._capture_task = None
+
+    async def _capture_loop(self) -> None:
+        while not self._stopping.is_set():
+            try:
+                await flush_esp32_interval(
+                    self.session_factory, system_id=self.system_id,
+                    sensor_mapping=self.sensor_mapping,
+                    auto_discover_sensors=self.auto_discover_sensors,
+                )
+            except Exception:
+                logger.exception("ESP32 timed capture failed; will retry")
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
 
     async def _sleep_or_stop(self) -> None:
         try:
