@@ -22,6 +22,10 @@ function fault(status: Esp32RawReadStatus | undefined): boolean {
   return status !== undefined && status !== 'ok' && status !== 'not_configured'
 }
 
+function usableRaw(status: Esp32RawReadStatus | undefined): boolean {
+  return status === undefined || status === 'ok'
+}
+
 /**
  * Advisory, client-side warnings based only on the most recent usable packet.
  * These are not authoritative backend alerts or hardware control decisions.
@@ -35,6 +39,8 @@ export function evaluateEsp32Warnings(packet: Esp32SensorPacket): Esp32SensorWar
     { id: 'tds', title: 'TDS probe', status: raw?.tds?.status },
     { id: 'ultrasonic', title: 'Water-level sensor', status: raw?.ultrasonic?.status },
     { id: 'water_temperature', title: 'Water temperature sensor', status: raw?.water_temperature?.status },
+    { id: 'air_temperature', title: 'Air temperature sensor', status: raw?.air_temperature?.status },
+    { id: 'humidity', title: 'Humidity sensor', status: raw?.humidity?.status },
   ]) {
     if (fault(sensor.status)) {
       warnings.push({
@@ -46,7 +52,7 @@ export function evaluateEsp32Warnings(packet: Esp32SensorPacket): Esp32SensorWar
     }
   }
 
-  if (!fault(raw?.ultrasonic?.status) && usable(packet.water_level_pct) &&
+  if (usableRaw(raw?.ultrasonic?.status) && usable(packet.water_level_pct) &&
       packet.water_level_pct < ESP32_WARNING_LIMITS.minimumWaterLevelPct) {
     warnings.push({
       id: 'water-level-low',
@@ -56,7 +62,7 @@ export function evaluateEsp32Warnings(packet: Esp32SensorPacket): Esp32SensorWar
     })
   }
 
-  if (packet.ph_calibrated && !fault(raw?.ph?.status) && usable(packet.ph) &&
+  if (packet.ph_calibrated && usableRaw(raw?.ph?.status) && usable(packet.ph) &&
       (packet.ph < ESP32_WARNING_LIMITS.minimumPh || packet.ph > ESP32_WARNING_LIMITS.maximumPh)) {
     warnings.push({
       id: 'ph-out-of-range',
@@ -66,7 +72,7 @@ export function evaluateEsp32Warnings(packet: Esp32SensorPacket): Esp32SensorWar
     })
   }
 
-  if (packet.tds_calibrated && !fault(raw?.tds?.status) && usable(packet.tds_ppm) &&
+  if (packet.tds_calibrated && usableRaw(raw?.tds?.status) && usable(packet.tds_ppm) &&
       packet.tds_ppm > ESP32_WARNING_LIMITS.maximumTdsPpm) {
     warnings.push({
       id: 'tds-high',
