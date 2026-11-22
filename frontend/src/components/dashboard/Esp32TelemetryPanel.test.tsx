@@ -169,7 +169,7 @@ describe('ESP32 telemetry dashboard panel', () => {
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
-    expect(await screen.findByText(/No ESP32 packets saved/)).toBeInTheDocument()
+    expect(await screen.findByText(/No ESP32 packets received/)).toBeInTheDocument()
   })
   it('shows active current sensor values without exposing IDs or diagnostics', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
