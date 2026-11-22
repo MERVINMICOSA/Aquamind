@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apiRequest } from './apiClient'
-import { listEsp32Telemetry, searchEsp32Telemetry } from './esp32TelemetryService'
+import { getEsp32CaptureSettings, updateEsp32CaptureSettings, getLatestEsp32Telemetry, listEsp32Telemetry, searchEsp32Telemetry } from './esp32TelemetryService'
 
 vi.mock('./apiClient', () => ({ apiRequest: vi.fn() }))
 
@@ -34,4 +34,17 @@ describe('ESP32 telemetry API', () => {
       'esp32/telemetry?system_id=system%20%2F%20one&limit=10',
     )
   })
+  it('uses typed authenticated endpoints for capture settings and live reading', async () => {
+    vi.mocked(apiRequest).mockResolvedValue(null)
+    await getLatestEsp32Telemetry('system 1')
+    expect(apiRequest).toHaveBeenCalledWith('esp32/telemetry/latest?system_id=system%201')
+    await getEsp32CaptureSettings('system 1')
+    expect(apiRequest).toHaveBeenCalledWith('esp32/capture?system_id=system%201')
+    await updateEsp32CaptureSettings('system 1', 'timed', 30)
+    expect(apiRequest).toHaveBeenCalledWith(
+      'esp32/capture?system_id=system%201',
+      { method: 'PUT', body: JSON.stringify({ mode: 'timed', interval_minutes: 30 }) },
+    )
+  })
+
 })
