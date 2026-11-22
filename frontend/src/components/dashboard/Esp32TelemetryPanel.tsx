@@ -5,6 +5,7 @@ import type { SystemSensorOverview } from '../../services/sensorService'
 import type { DashboardSensor } from '../../types/dashboard'
 import type { Esp32RawReadings, Esp32RawSensorReading, Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
 import './Esp32TelemetryPanel.css'
+import { Esp32TelemetryWarnings } from './Esp32TelemetryWarnings'
 
 interface Props {
   systemId: string
@@ -356,6 +357,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
               : 'No saved sensor measurements are available for this system.'}</p>
           </div>
         </div>
+        <Esp32TelemetryWarnings latest={latest} nowMs={nowMs} demo={demoPackets !== undefined} />
         {displayedStatus === 'loading' && registeredStatus === 'loading' && (
           <p role="status">Loading sensor readings...</p>
         )}
@@ -410,6 +412,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
         </div>
       </div>
 
+      <Esp32TelemetryWarnings latest={latest} nowMs={nowMs} demo={demoPackets !== undefined} />
       {displayedStatus === 'loading' && (
         <p role="status">Loading ESP32 sensor packets...</p>
       )}
