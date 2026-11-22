@@ -38,6 +38,18 @@ describe('ESP32 advisory warning rules', () => {
     })
     expect(warnings.map(item => item.id)).toEqual(['fault-ph', 'fault-ultrasonic'])
   })
+  it('does not trust numeric values when raw status says not configured', () => {
+    const warnings = evaluateEsp32Warnings({
+      ...base, ph: 9.0, tds_ppm: 1500, water_level_pct: 20,
+      raw_readings: {
+        ph: { status: 'not_configured' },
+        tds: { status: 'not_configured' },
+        ultrasonic: { status: 'not_configured' },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
   it('never uses old or future timestamps for live warnings', () => {
     const now = Date.parse('2026-11-22T10:00:00Z')
     expect(isFreshEsp32Packet('2026-11-22T09:59:30Z', now)).toBe(true)
