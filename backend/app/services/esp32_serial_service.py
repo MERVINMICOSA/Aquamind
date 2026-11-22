@@ -310,11 +310,18 @@ async def persist_esp32_packet(
                     sensor_mapping=sensor_mapping,
                     auto_discover_sensors=auto_discover_sensors,
                 )
+                # In Live mode, the current packet is also an archive row.
+                # Preserve that row's ID for pre-existing API clients.
+                archive_id = (
+                    await session.execute(
+                        select(Esp32Telemetry.id).where(*_packet_identity(system_id, packet))
+                    )
+                ).scalar_one()
                 state.last_saved_at = current
                 state.last_saved_scheduled_at = None
 
             state.device_id = packet.device_id
-            state.latest_packet_id = uuid4()
+            state.latest_packet_id = archive_id if state.mode == "live" else uuid4()
             state.latest_sequence = packet.sequence
             state.latest_uptime_ms = packet.uptime_ms
             state.latest_packet = contents
@@ -390,7 +397,14 @@ class Esp32SerialWorker:
             self._capture_task = None
 
     async def _capture_loop(self) -> None:
+        # Do not contend with the serial worker's initial state creation.
+        # A one-second cadence is still accurate for minute-scale schedules.
         while not self._stopping.is_set():
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                pass
             try:
                 await flush_esp32_interval(
                     self.session_factory, system_id=self.system_id,
@@ -399,10 +413,6 @@ class Esp32SerialWorker:
                 )
             except Exception:
                 logger.exception("ESP32 timed capture failed; will retry")
-            try:
-                await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
 
     async def _sleep_or_stop(self) -> None:
         try:
