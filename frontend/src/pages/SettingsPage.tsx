@@ -9,6 +9,7 @@ import type {
 import {
   useAuth,
 } from '../hooks/useAuth'
+import { Esp32CaptureSettings } from '../components/settings/Esp32CaptureSettings'
 
 import {
   useSettingsOverview,
@@ -412,7 +413,7 @@ export function SettingsPage() {
           <p
             className="page-description"
           >
-            Manage system-level saved configuration notes and values.
+            Manage ESP32 data collection and system-level configuration notes and values.
             Hardware setup, sensor calibration, and servo feeding are
             configured separately.
           </p>
@@ -469,6 +470,14 @@ export function SettingsPage() {
           </select>
         </label>
       </div>
+
+      {overview.selectedSystemId !== null && (
+        <Esp32CaptureSettings
+          key={overview.selectedSystemId}
+          systemId={overview.selectedSystemId}
+          canManage={canManageSettings}
+        />
+      )}
 
       <section className="surface-panel" aria-labelledby="settings-guide-heading">
         <div>
