@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listEsp32Telemetry } from '../../services/esp32TelemetryService'
+import { getLatestEsp32Telemetry, listEsp32Telemetry } from '../../services/esp32TelemetryService'
 import { loadSystemSensorOverview } from '../../services/sensorService'
 import type { SystemSensorOverview } from '../../services/sensorService'
 import type { DashboardSensor } from '../../types/dashboard'
@@ -244,6 +244,7 @@ function simpleReadingState(reading: SimpleReading, nowMs: number): 'Active' | '
  */
 export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }: Props) {
   const [packets, setPackets] = useState<Esp32Telemetry[]>([])
+  const [livePacket, setLivePacket] = useState<Esp32Telemetry | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [registeredOverview, setRegisteredOverview] = useState<SystemSensorOverview | null>(null)
@@ -260,9 +261,16 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
       if (busy) return
       busy = true
       try {
-        const next = await listEsp32Telemetry(systemId)
+        const [history, current] = await Promise.allSettled([
+          listEsp32Telemetry(systemId),
+          Promise.resolve().then(() => getLatestEsp32Telemetry(systemId)),
+        ])
+        if (history.status === 'rejected' && current.status === 'rejected') {
+          throw new Error('No ESP32 telemetry source available')
+        }
         if (active) {
-          setPackets(next)
+          setPackets(history.status === 'fulfilled' ? history.value : [])
+          setLivePacket(current.status === 'fulfilled' ? current.value : null)
           setStatus('ready')
         }
       } catch {
@@ -317,7 +325,9 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
 
   const displayedPackets = demoPackets ?? packets
   const displayedStatus = demoPackets !== undefined ? 'ready' : status
-  const latest = displayedPackets[0] ?? null
+  const latest = demoPackets !== undefined
+    ? displayedPackets[0] ?? null
+    : livePacket ?? displayedPackets[0] ?? null
   const packet = latest?.packet
   const connection = demoPackets !== undefined
     ? { state: 'unknown', label: 'Demo preview', detail: 'Sample data only; no physical ESP32 connection checked.' }
@@ -389,7 +399,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
           <p className="eyebrow">ESP32 device telemetry</p>
           <h2>ESP32 sensor readings</h2>
         </div>
-        <span>Saved packet history · Refreshes every 10 seconds</span>
+        <span>Live USB readings and saved history · Refreshes every 10 seconds</span>
       </div>
 
       <div className="esp32-telemetry__connection" data-state={connection.state} role="status" aria-live="polite">
@@ -407,7 +417,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
         <p role="alert">Cannot refresh ESP32 data. Previously saved values may be stale.</p>
       )}
       {displayedStatus === 'ready' && latest === null && (
-        <p>No ESP32 packets saved for this system yet.</p>
+        <p>No ESP32 packets received for this system yet.</p>
       )}
 
       {latest !== null && packet !== undefined && (
@@ -475,7 +485,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
             )}
           </div>
 
-          <h3>Recent packets</h3>
+          <h3>Recent saved history packets</h3>
           <div className="esp32-telemetry__history">
             <table>
               <thead>

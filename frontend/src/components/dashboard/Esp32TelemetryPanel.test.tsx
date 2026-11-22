@@ -1,18 +1,20 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listEsp32Telemetry } from '../../services/esp32TelemetryService'
+import { getLatestEsp32Telemetry, listEsp32Telemetry } from '../../services/esp32TelemetryService'
 import { loadSystemSensorOverview } from '../../services/sensorService'
 import { Esp32TelemetryPanel } from './Esp32TelemetryPanel'
 
 vi.mock('../../services/esp32TelemetryService', () => ({
   listEsp32Telemetry: vi.fn(),
+  getLatestEsp32Telemetry: vi.fn(),
 }))
 vi.mock('../../services/sensorService', () => ({
   loadSystemSensorOverview: vi.fn(),
 }))
 
 beforeEach(() => {
+  vi.mocked(getLatestEsp32Telemetry).mockResolvedValue(null)
   vi.mocked(loadSystemSensorOverview).mockResolvedValue({
     sensors: [], latestReadings: [],
   })
@@ -62,6 +64,18 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(screen.getAllByText('No reading').length).toBeGreaterThanOrEqual(3)
     expect(screen.getByRole('columnheader', { name: 'Sequence' })).toBeInTheDocument()
     expect(listEsp32Telemetry).toHaveBeenCalledWith('system-1')
+  })
+
+  it('shows the latest USB reading even when no historical packet is saved', async () => {
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([])
+    vi.mocked(getLatestEsp32Telemetry).mockResolvedValue({
+      id: 'live-1', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z', packet,
+    })
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
+    expect(screen.queryByText('No ESP32 packets received')).not.toBeInTheDocument()
+    expect(getLatestEsp32Telemetry).toHaveBeenCalledWith('system-1')
   })
 
   it('shows device-reported raw values and faults, including real zero counts', async () => {
@@ -155,7 +169,7 @@ describe('ESP32 telemetry dashboard panel', () => {
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
-    expect(await screen.findByText(/No ESP32 packets saved/)).toBeInTheDocument()
+    expect(await screen.findByText(/No ESP32 packets received/)).toBeInTheDocument()
   })
   it('shows active current sensor values without exposing IDs or diagnostics', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))

@@ -39,6 +39,7 @@ EXPECTED_TABLES = {
     "feeder_calibrations",
     "sensor_calibrations",
     "esp32_telemetry",  # Schema-v1 packet archive, separate from sensor_readings.
+    "esp32_capture_state",  # Bounded live packet and durable sampling schedule.
 }
 
 

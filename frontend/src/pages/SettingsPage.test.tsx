@@ -47,6 +47,10 @@ vi.mock(
   }),
 )
 
+vi.mock('../components/settings/Esp32CaptureSettings', () => ({
+  Esp32CaptureSettings: () => <div>ESP32 capture settings</div>,
+}))
+
 
 const mockedUseAuth =
   vi.mocked(

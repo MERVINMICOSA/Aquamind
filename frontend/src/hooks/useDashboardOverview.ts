@@ -8,7 +8,7 @@ import {
   listSystems,
   loadSystemDashboardOverview,
 } from '../services/dashboardService'
-import { listEsp32Telemetry } from '../services/esp32TelemetryService'
+import { getLatestEsp32Telemetry, listEsp32Telemetry } from '../services/esp32TelemetryService'
 import { mergeDashboardEsp32Archive } from '../utils/esp32DashboardReadings'
 
 import type {
@@ -260,9 +260,10 @@ export function useDashboardOverview() {
       if (!hasLoaded) setOverviewStatus('loading')
 
       try {
-        const [registeredResult, esp32Result] = await Promise.allSettled([
+        const [registeredResult, esp32Result, liveResult] = await Promise.allSettled([
           loadSystemDashboardOverview(systemId),
           listEsp32Telemetry(systemId),
+          Promise.resolve().then(() => getLatestEsp32Telemetry(systemId)),
         ])
         if (!active) return
 
@@ -270,7 +271,8 @@ export function useDashboardOverview() {
         // still populate the dashboard. Never silently invent measurements.
         if (
           registeredResult.status === 'rejected' &&
-          (esp32Result.status === 'rejected' || esp32Result.value.length === 0)
+          (esp32Result.status === 'rejected' || esp32Result.value.length === 0) &&
+          (liveResult.status === 'rejected' || liveResult.value === null)
         ) throw new Error('Neither dashboard data source was available')
 
         const registered: SystemDashboardOverview =
@@ -279,7 +281,13 @@ export function useDashboardOverview() {
             : { sensors: [], actuators: [], alerts: [], latestReadings: [] }
         const savedPackets =
           esp32Result.status === 'fulfilled' ? esp32Result.value : []
-        const result = mergeDashboardEsp32Archive(registered, savedPackets, systemId)
+        const currentPacket =
+          liveResult.status === 'fulfilled' ? liveResult.value : null
+        const result = mergeDashboardEsp32Archive(
+          registered,
+          currentPacket ? [currentPacket] : savedPackets,
+          systemId,
+        )
 
         setSensors(result.sensors)
         setActuators(result.actuators)

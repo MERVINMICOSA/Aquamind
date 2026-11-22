@@ -113,3 +113,19 @@ class Esp32TelemetrySearchResponse(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
     offset: int = Field(ge=0)
+
+
+class Esp32CaptureUpdate(BaseModel):
+    mode: Literal["live", "timed"]
+    interval_minutes: int = Field(default=5, ge=1, le=1440)
+
+
+class Esp32CaptureResponse(BaseModel):
+    system_id: UUID
+    device_id: str | None = None
+    mode: Literal["live", "timed"] = "live"
+    interval_minutes: int = Field(default=5, ge=1, le=1440)
+    latest_received_at: datetime | None = None
+    last_saved_at: datetime | None = None
+    last_saved_scheduled_at: datetime | None = None
+    next_save_at: datetime | None = None
