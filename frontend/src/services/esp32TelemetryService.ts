@@ -59,3 +59,44 @@ export function searchEsp32Telemetry(
     `esp32/telemetry/search?${params.toString()}`,
   )
 }
+
+
+/** Most recent USB packet, independent of how often history is saved. */
+export function getLatestEsp32Telemetry(systemId: string): Promise<Esp32Telemetry | null> {
+  return apiRequest<Esp32Telemetry | null>(
+    `esp32/telemetry/latest?system_id=${encodeURIComponent(systemId)}`,
+  )
+}
+
+export type Esp32CaptureMode = 'live' | 'timed'
+
+export interface Esp32CaptureSettings {
+  system_id: string
+  device_id: string | null
+  mode: Esp32CaptureMode
+  interval_minutes: number
+  latest_received_at: string | null
+  last_saved_at: string | null
+  last_saved_scheduled_at: string | null
+  next_save_at: string | null
+}
+
+export function getEsp32CaptureSettings(systemId: string): Promise<Esp32CaptureSettings> {
+  return apiRequest<Esp32CaptureSettings>(
+    `esp32/capture?system_id=${encodeURIComponent(systemId)}`,
+  )
+}
+
+export function updateEsp32CaptureSettings(
+  systemId: string,
+  mode: Esp32CaptureMode,
+  intervalMinutes: number,
+): Promise<Esp32CaptureSettings> {
+  return apiRequest<Esp32CaptureSettings>(
+    `esp32/capture?system_id=${encodeURIComponent(systemId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ mode, interval_minutes: intervalMinutes }),
+    },
+  )
+}
