@@ -29,4 +29,5 @@ class Esp32CaptureState(Base):
     latest_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latest_uptime_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     latest_packet: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    recent_packet_hashes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     latest_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
