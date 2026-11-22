@@ -124,6 +124,21 @@ async def test_packet_at_boundary_does_not_replace_previous_window(client, test_
 
 
 @pytest.mark.asyncio
+async def test_replayed_packet_does_not_displace_last_pre_boundary_reading(client, test_session_factory):
+    system_id = await make_system(client)
+    await set_timed(test_session_factory, system_id)
+    await accept(test_session_factory, system_id, 1, T0 + timedelta(seconds=40), 21)
+    await accept(test_session_factory, system_id, 2, T0 + timedelta(seconds=58), 28)
+    assert await accept(
+        test_session_factory, system_id, 1, T0 + timedelta(seconds=59), 21
+    ) == "duplicate"
+    assert await flush_esp32_interval(
+        test_session_factory, system_id=system_id, now=T0 + timedelta(minutes=1),
+    ) == "created"
+    assert [r.sequence for r in await stored(test_session_factory)] == [2]
+
+
+@pytest.mark.asyncio
 async def test_disconnection_skips_stale_and_missing_intervals(client, test_session_factory):
     system_id = await make_system(client)
     await set_timed(test_session_factory, system_id)
