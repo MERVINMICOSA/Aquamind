@@ -225,6 +225,11 @@ export function SensorHistoryPage() {
     setExporting(true)
     setExportMessage(null)
     const allRows: Esp32Telemetry[] = []
+    // Exclude arrivals after export started so offset pagination cannot shift.
+    const snapshotEnd = new Date().toISOString()
+    const requestedEnd = localEndExclusiveIso(applied.to)
+    const endAt = requestedEnd && Date.parse(requestedEnd) < Date.parse(snapshotEnd)
+      ? requestedEnd : snapshotEnd
     try {
       const batchSize = 100
       let offset = 0
@@ -233,7 +238,7 @@ export function SensorHistoryPage() {
         const result = await searchEsp32Telemetry({
           systemId, field: applied.field,
           startAt: localStartIso(applied.from),
-          endAt: localEndExclusiveIso(applied.to),
+          endAt,
           offset, limit: batchSize,
         })
         total = result.total
