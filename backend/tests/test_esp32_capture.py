@@ -171,17 +171,12 @@ async def test_admin_can_change_interval_and_restart_schedule(client, test_sessi
 @pytest.mark.asyncio
 async def test_non_admin_cannot_change_capture_configuration(client, test_session_factory):
     from app.api.dependencies import get_current_user
-    from app.db.enums import UserRole
     from app.main import app
-    from app.models.system import User
-    from uuid import uuid4
+    from types import SimpleNamespace
 
     system_id = await make_system(client)
     async def viewer():
-        return User(
-            id=uuid4(), username="viewer", password_hash="x",
-            role=UserRole.VIEWER, is_active=True,
-        )
+        return SimpleNamespace(role="viewer")
     app.dependency_overrides[get_current_user] = viewer
     response = await client.put(
         "/api/v1/esp32/capture", params={"system_id": str(system_id)},
