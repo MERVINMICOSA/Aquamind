@@ -27,6 +27,7 @@ def upgrade() -> None:
         sa.Column("latest_sequence", sa.Integer()),
         sa.Column("latest_uptime_ms", sa.BigInteger()),
         sa.Column("latest_packet", sa.JSON()),
+        sa.Column("recent_packet_hashes", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("latest_received_at", sa.DateTime(timezone=True)),
         sa.CheckConstraint("mode IN ('live', 'timed')", name="esp32_capture_mode"),
         sa.CheckConstraint("interval_minutes BETWEEN 1 AND 1440", name="esp32_capture_interval"),
