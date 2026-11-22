@@ -7,6 +7,7 @@ telemetry archive and cannot trigger calibration-dependent automations.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -270,6 +271,17 @@ async def persist_esp32_packet(
             ):
                 return "duplicate" if state.latest_packet == contents else "conflict"
 
+            # USB resets and retry bursts may replay more than just the last
+            # packet. A fixed-size, persistent fingerprint window keeps these
+            # packets from replacing the true newest pre-boundary measurement.
+            identity_key = f"{packet.sequence}:{packet.uptime_ms}"
+            fingerprint = hashlib.sha256(
+                json.dumps(contents, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            for prior_key, prior_hash in state.recent_packet_hashes or []:
+                if prior_key == identity_key:
+                    return "duplicate" if prior_hash == fingerprint else "conflict"
+
             # Reject already-archived replays; they must not replace newer live data.
             existing = (
                 await session.execute(
@@ -307,6 +319,10 @@ async def persist_esp32_packet(
             state.latest_uptime_ms = packet.uptime_ms
             state.latest_packet = contents
             state.latest_received_at = current
+            state.recent_packet_hashes = [
+                *(state.recent_packet_hashes or [])[-31:],
+                [identity_key, fingerprint],
+            ]
             await session.commit()
             return "created"
         except IntegrityError:
