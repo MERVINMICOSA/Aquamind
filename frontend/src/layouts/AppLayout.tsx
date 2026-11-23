@@ -16,7 +16,6 @@ import { useAuth } from '../hooks/useAuth'
 type NavigationIcon =
   | 'dashboard'
   | 'sensors'
-  | 'feeding'
   | 'alerts'
   | 'settings'
   | 'water-flow'
@@ -47,11 +46,6 @@ const navigationItems:
       label: 'History',
       path: '/history',
       icon: 'sensors',
-    },
-    {
-      label: 'Feeding',
-      path: '/feeding',
-      icon: 'feeding',
     },
     {
       label: 'Water Flow',
@@ -180,7 +174,7 @@ export function AppLayout() {
             </span>
 
             <span className="app-topbar__title">
-              Aquaponics Monitoring & Feeding
+              Aquaponics Monitoring
             </span>
           </div>
 
