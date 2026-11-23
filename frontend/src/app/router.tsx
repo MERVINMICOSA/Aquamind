@@ -16,9 +16,6 @@ import {
 } from '../layouts/AppLayout'
 
 import {
-  AlertsPage,
-} from '../pages/AlertsPage'
-import {
   DashboardPage,
 } from '../pages/DashboardPage'
 import {
@@ -115,12 +112,8 @@ export function AppRoutes() {
             element={<WaterFlowPage />}
           />
 
-          <Route
-            path="alerts"
-            element={
-              <AlertsPage />
-            }
-          />
+          {/* Alerts are now indicated inline on current readings and archived History. */}
+          <Route path="alerts" element={<Navigate to="/sensors" replace />} />
 
 
           <Route
