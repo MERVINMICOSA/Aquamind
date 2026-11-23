@@ -16,7 +16,6 @@ import { useAuth } from '../hooks/useAuth'
 type NavigationIcon =
   | 'dashboard'
   | 'sensors'
-  | 'alerts'
   | 'settings'
   | 'water-flow'
 
@@ -51,11 +50,6 @@ const navigationItems:
       label: 'Water Flow',
       path: '/water-flow',
       icon: 'water-flow',
-    },
-    {
-      label: 'Alerts',
-      path: '/alerts',
-      icon: 'alerts',
     },
     {
       label: 'Settings',
