@@ -20,5 +20,7 @@ describe('External continuous water flow guide', () => {
       .toHaveAttribute('href', '/sensors')
     expect(screen.queryByRole('button', { name: /start|stop|turn on|turn off/i }))
       .not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /feeding/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /fish feeding/i })).not.toBeInTheDocument()
   })
 })
