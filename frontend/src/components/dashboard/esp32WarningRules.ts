@@ -85,6 +85,76 @@ export function evaluateEsp32Warnings(packet: Esp32SensorPacket): Esp32SensorWar
   return warnings
 }
 
+/**
+ * Same advisory thresholds used by live warnings and historical table cells.
+ * These labels never imply AquaMind has independently checked calibration.
+ */
+export type Esp32MeasurementField =
+  | 'water_temp_c'
+  | 'air_temp_c'
+  | 'humidity_pct'
+  | 'water_level_pct'
+  | 'water_height_cm'
+  | 'distance_cm'
+  | 'ph'
+  | 'tds_ppm'
+
+export type Esp32CellAlert = {
+  severity: 'low' | 'high' | 'fault'
+  message: string
+}
+
+export function thresholdAlertForValue(
+  field: Esp32MeasurementField,
+  value: number | null | undefined,
+  calibrated = true,
+): Esp32CellAlert | null {
+  if (!usable(value)) return null
+  if (field === 'water_level_pct' && value < ESP32_WARNING_LIMITS.minimumWaterLevelPct) {
+    return { severity: 'low', message: 'Low water level: below 75%' }
+  }
+  if (field === 'ph' && calibrated && value < ESP32_WARNING_LIMITS.minimumPh) {
+    return { severity: 'low', message: 'Low device-reported pH: below 6.5' }
+  }
+  if (field === 'ph' && calibrated && value > ESP32_WARNING_LIMITS.maximumPh) {
+    return { severity: 'high', message: 'High device-reported pH: above 7.5' }
+  }
+  if (field === 'tds_ppm' && calibrated && value > ESP32_WARNING_LIMITS.maximumTdsPpm) {
+    return { severity: 'high', message: 'High device-reported TDS: above 1,000 ppm' }
+  }
+  // No agreed temperature, humidity, height or distance thresholds.
+  return null
+}
+
+/** Includes actual ESP32 read faults; not_configured is missing data, not a threshold alarm. */
+export function readingAlertForPacket(
+  packet: Esp32SensorPacket,
+  field: Esp32MeasurementField,
+): Esp32CellAlert | null {
+  const keys: Record<Esp32MeasurementField, keyof NonNullable<Esp32SensorPacket['raw_readings']>> = {
+    water_temp_c: 'water_temperature',
+    air_temp_c: 'air_temperature',
+    humidity_pct: 'humidity',
+    water_level_pct: 'ultrasonic',
+    water_height_cm: 'ultrasonic',
+    distance_cm: 'ultrasonic',
+    ph: 'ph',
+    tds_ppm: 'tds',
+  }
+  const rawStatus = packet.raw_readings?.[keys[field]]?.status
+  if (fault(rawStatus)) {
+    return {
+      severity: 'fault',
+      message: `Sensor read fault: ${rawStatus?.replaceAll('_', ' ')}`,
+    }
+  }
+  if (!usableRaw(rawStatus)) return null
+  const calibrated = field === 'ph'
+    ? packet.ph_calibrated
+    : field === 'tds_ppm' ? packet.tds_calibrated : true
+  return thresholdAlertForValue(field, packet[field], calibrated)
+}
+
 /** Missing or stale packets must not be presented as current threshold alerts. */
 export function isFreshEsp32Packet(receivedAt: string, nowMs: number): boolean {
   const receivedMs = Date.parse(receivedAt)
