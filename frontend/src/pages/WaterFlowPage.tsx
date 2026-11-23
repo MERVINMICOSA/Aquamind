@@ -14,7 +14,7 @@ export function WaterFlowPage() {
         <p className="page-description">
           Reference the continuously circulating fish-tank and two-raft layout.
           Circulation is powered externally; AquaMind does not switch the
-          water pump or its relays. Fish feeding is managed separately.
+          water pump or its relays.
         </p>
       </header>
 
@@ -54,23 +54,6 @@ export function WaterFlowPage() {
           </p>
           <Link to="/sensors" className="sensor-detail-link">
             Review sensor readings
-          </Link>
-        </div>
-      </section>
-
-      <section className="surface-panel" aria-labelledby="water-flow-feeding">
-        <div>
-          <p className="eyebrow">Separate subsystem</p>
-          <h2 id="water-flow-feeding">Fish feeding stays available</h2>
-          <p>
-            AquaMind retains feeding schedules, fish population records,
-            feeder calibration, and feeding history. The planned feeder
-            uses an ESP32-controlled servo, separate from the externally
-            powered water circulation loop. Servo command transport and
-            acknowledgment still need implementation.
-          </p>
-          <Link to="/feeding" className="sensor-detail-link">
-            Open feeding management
           </Link>
         </div>
       </section>
