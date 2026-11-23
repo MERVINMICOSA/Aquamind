@@ -496,8 +496,6 @@ export function SettingsPage() {
               port, baud rate, device ID, and system ID.</li>
             <li>Verify the pH and TDS calibration before making
               water-quality decisions from those measurements.</li>
-            <li>Use Feeding to configure the fish-feeder record,
-              schedule, servo dispenser calibration, and fish population.</li>
             <li>Use Alerts to review warnings; configure
               sensor thresholds through the supported alert-threshold
               backend, not by inventing generic setting keys.</li>
