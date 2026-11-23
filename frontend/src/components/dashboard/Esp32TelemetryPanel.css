@@ -74,3 +74,18 @@
 .esp32-telemetry__connection[data-state="connected"] .esp32-telemetry__connection-dot { background: #159447; }
 .esp32-telemetry__connection[data-state="stale"] .esp32-telemetry__connection-dot { background: #d89b22; }
 .esp32-telemetry__connection[data-state="disconnected"] .esp32-telemetry__connection-dot { background: #c0332b; }
+
+/* Live warnings stay beside the measurement; use text as well as red color. */
+.esp32-telemetry__metric[data-alert] {
+  border-color: #d85151;
+  background: #fff0f0;
+  box-shadow: inset 3px 0 0 #c63333;
+}
+.esp32-telemetry__metric[data-alert] > strong { color: #a02020; }
+.esp32-telemetry__metric > .esp32-telemetry__alert-label {
+  color: #a02020;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
