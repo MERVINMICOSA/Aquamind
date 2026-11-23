@@ -166,6 +166,52 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(await screen.findByText(`ESP32: ${label}`)).toBeInTheDocument()
   })
 
+  it('marks fresh high and low values directly on live sensor cards', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([])
+    vi.mocked(getLatestEsp32Telemetry).mockResolvedValue({
+      id: 'live-warning', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: {
+        ...packet, ph_calibrated: true, ph: 7.9,
+        tds_calibrated: true, tds_ppm: 1201,
+        water_level_pct: 74,
+      },
+    })
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText('74.00%')).toBeInTheDocument()
+    expect(screen.getByText('74.00%').closest('article')).toHaveAttribute('data-alert', 'low')
+    expect(screen.getByText('7.90').closest('article')).toHaveAttribute('data-alert', 'high')
+    expect(screen.getByText('1201 ppm').closest('article')).toHaveAttribute('data-alert', 'high')
+    expect(screen.getByText('27.56 °C').closest('article')).not.toHaveAttribute('data-alert')
+    expect(screen.getByRole('region', { name: 'ESP32 monitoring warnings' })).toBeInTheDocument()
+  })
+
+  it('keeps old measurements neutral even if they were once outside ranges', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:04:00Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'old-reading', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: { ...packet, water_level_pct: 11 },
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('11.0 %')).toBeInTheDocument()
+    expect(screen.getByText('11.0 %').closest('article')).not.toHaveAttribute('data-alert')
+  })
+
+  it('colors fresh low water levels inside the simplified dashboard', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-03T00:00:05Z'))
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([{
+      id: 'fresh-low', system_id: 'system-1',
+      received_at: '2026-11-03T00:00:00Z',
+      packet: { ...packet, water_level_pct: 70 },
+    }])
+    render(<Esp32TelemetryPanel systemId="system-1" mode="simple" />)
+    expect(await screen.findByText('70.0 %')).toBeInTheDocument()
+    expect(screen.getByText('70.0 %').closest('article')).toHaveAttribute('data-alert', 'low')
+    expect(screen.getByText('27.56 °C').closest('article')).not.toHaveAttribute('data-alert')
+  })
+
   it('shows no records when the database contains no packets', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     render(<Esp32TelemetryPanel systemId="system-1" />)
