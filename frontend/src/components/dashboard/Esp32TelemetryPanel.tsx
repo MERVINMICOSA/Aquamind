@@ -6,6 +6,8 @@ import type { DashboardSensor } from '../../types/dashboard'
 import type { Esp32RawReadings, Esp32RawSensorReading, Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
 import './Esp32TelemetryPanel.css'
 import { Esp32TelemetryWarnings } from './Esp32TelemetryWarnings'
+import { isFreshEsp32Packet, readingAlertForPacket, thresholdAlertForValue } from './esp32WarningRules'
+import type { Esp32MeasurementField } from './esp32WarningRules'
 
 interface Props {
   systemId: string
@@ -64,16 +66,16 @@ function signalHealth(
   }
 }
 
-function fields(packet: Esp32SensorPacket) {
+function fields(packet: Esp32SensorPacket): { field: Esp32MeasurementField; label: string; value: string }[] {
   return [
-    { label: 'Water temperature', value: numeric(packet.water_temp_c, ' °C') },
-    { label: 'pH', value: packet.ph_calibrated ? numeric(packet.ph) : 'Not calibrated' },
-    { label: 'TDS', value: packet.tds_calibrated ? numeric(packet.tds_ppm, ' ppm', 0) : 'Not calibrated' },
-    { label: 'Water level', value: numeric(packet.water_level_pct, '%') },
-    { label: 'Air temperature', value: numeric(packet.air_temp_c, ' °C') },
-    { label: 'Air humidity', value: numeric(packet.humidity_pct, '%') },
-    { label: 'Ultrasonic distance', value: numeric(packet.distance_cm, ' cm') },
-    { label: 'Water height', value: numeric(packet.water_height_cm, ' cm') },
+    { field: 'water_temp_c', label: 'Water temperature', value: numeric(packet.water_temp_c, ' °C') },
+    { field: 'ph', label: 'pH', value: packet.ph_calibrated ? numeric(packet.ph) : 'Not calibrated' },
+    { field: 'tds_ppm', label: 'TDS', value: packet.tds_calibrated ? numeric(packet.tds_ppm, ' ppm', 0) : 'Not calibrated' },
+    { field: 'water_level_pct', label: 'Water level', value: numeric(packet.water_level_pct, '%') },
+    { field: 'air_temp_c', label: 'Air temperature', value: numeric(packet.air_temp_c, ' °C') },
+    { field: 'humidity_pct', label: 'Air humidity', value: numeric(packet.humidity_pct, '%') },
+    { field: 'distance_cm', label: 'Ultrasonic distance', value: numeric(packet.distance_cm, ' cm') },
+    { field: 'water_height_cm', label: 'Water height', value: numeric(packet.water_height_cm, ' cm') },
   ]
 }
 
@@ -117,6 +119,8 @@ type SimpleReading = {
   origin: 'hardware' | 'simulator'
   activeWindowMs: number
   rawFaultAt?: string
+  numericValue?: number
+  field?: Esp32MeasurementField
 }
 
 function displaySensorName(sensor: DashboardSensor): string {
@@ -145,19 +149,21 @@ function displaySensorName(sensor: DashboardSensor): string {
 
 function simplePacketMetrics(packet: Esp32SensorPacket, receivedAt: string): SimpleReading[] {
   const candidates = [
-    { label: 'Water temperature', value: packet.water_temp_c, unit: '°C', rawKey: 'water_temperature' },
-    { label: 'Water level', value: packet.water_level_pct, unit: '%', rawKey: 'ultrasonic' },
-    { label: 'Water height', value: packet.water_height_cm, unit: 'cm', rawKey: 'ultrasonic' },
-    { label: 'Ultrasonic distance', value: packet.distance_cm, unit: 'cm', rawKey: 'ultrasonic' },
-    { label: 'Air temperature', value: packet.air_temp_c, unit: '°C', rawKey: 'air_temperature' },
-    { label: 'Air humidity', value: packet.humidity_pct, unit: '%', rawKey: 'humidity' },
+    { field: 'water_temp_c', label: 'Water temperature', value: packet.water_temp_c, unit: '°C', rawKey: 'water_temperature' },
+    { field: 'water_level_pct', label: 'Water level', value: packet.water_level_pct, unit: '%', rawKey: 'ultrasonic' },
+    { field: 'water_height_cm', label: 'Water height', value: packet.water_height_cm, unit: 'cm', rawKey: 'ultrasonic' },
+    { field: 'distance_cm', label: 'Ultrasonic distance', value: packet.distance_cm, unit: 'cm', rawKey: 'ultrasonic' },
+    { field: 'air_temp_c', label: 'Air temperature', value: packet.air_temp_c, unit: '°C', rawKey: 'air_temperature' },
+    { field: 'humidity_pct', label: 'Air humidity', value: packet.humidity_pct, unit: '%', rawKey: 'humidity' },
   ] as const
 
-  return candidates.flatMap(({ label, value, unit, rawKey }) => {
+  return candidates.flatMap(({ field, label, value, unit, rawKey }) => {
     const raw = packet.raw_readings?.[rawKey]
     if (value === null || !Number.isFinite(value) || (raw && raw.status !== 'ok')) return []
     return [{
       label,
+      field,
+      numericValue: value,
       value: `${value.toFixed(unit === '%' ? 1 : 2)} ${unit}`,
       recordedAt: receivedAt,
       origin: 'hardware' as const,
@@ -189,8 +195,20 @@ function composeSimpleReadings(
       const value = Number(reading.value_numeric)
       if (!Number.isFinite(value)) continue
       const label = displaySensorName(sensor)
+      const labelToField: Record<string, Esp32MeasurementField> = {
+        'Water temperature': 'water_temp_c',
+        'Water level': 'water_level_pct',
+        'Water height': 'water_height_cm',
+        'Ultrasonic distance': 'distance_cm',
+        'Air temperature': 'air_temp_c',
+        'Air humidity': 'humidity_pct',
+        pH: 'ph',
+        TDS: 'tds_ppm',
+      }
       const metric: SimpleReading = {
         label,
+        field: labelToField[label],
+        numericValue: value,
         value: `${value.toFixed(sensor.unit === 'ppm' ? 0 : 2)} ${reading.unit}`,
         recordedAt: reading.recorded_at,
         origin: sensor.is_simulated || reading.source === 'simulator' ? 'simulator' : 'hardware',
@@ -368,10 +386,18 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
           <div className="esp32-telemetry__grid">
             {readings.map(reading => {
               const state = simpleReadingState(reading, nowMs)
+              const alert = state === 'Active' && reading.origin === 'hardware' && reading.field
+                ? thresholdAlertForValue(reading.field, reading.numericValue)
+                : null
               return (
-                <article className="esp32-telemetry__metric" key={reading.label}>
+                <article className="esp32-telemetry__metric" key={reading.label}
+                  data-alert={alert?.severity}
+                  title={alert?.message}>
                   <span>{reading.label}</span>
                   <strong>{reading.value}</strong>
+                  {alert && <span className="esp32-telemetry__alert-label">
+                    {alert.severity === 'low' ? 'Low reading' : 'High reading'} — {alert.message}
+                  </span>}
                   <span className={state === 'Active'
                     ? 'sensor-state sensor-state--enabled'
                     : 'sensor-state sensor-state--disabled'}>
@@ -431,12 +457,22 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
           </p>
 
           <div className="esp32-telemetry__grid">
-            {fields(packet).map(({ label, value }) => (
-              <article className="esp32-telemetry__metric" key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </article>
-            ))}
+            {fields(packet).map(({ field, label, value }) => {
+              const alert = demoPackets === undefined && isFreshEsp32Packet(latest.received_at, nowMs)
+                ? readingAlertForPacket(packet, field)
+                : null
+              return (
+                <article className="esp32-telemetry__metric" key={label}
+                  data-alert={alert?.severity} title={alert?.message}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                  {alert && <span className="esp32-telemetry__alert-label">
+                    {alert.severity === 'fault' ? 'Sensor fault'
+                      : alert.severity === 'low' ? 'Low reading' : 'High reading'} — {alert.message}
+                  </span>}
+                </article>
+              )
+            })}
           </div>
 
           <div className="esp32-telemetry__diagnostics">

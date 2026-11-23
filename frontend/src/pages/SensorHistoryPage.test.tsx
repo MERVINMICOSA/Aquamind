@@ -196,6 +196,57 @@ describe('simplified ESP32 history', () => {
       .toBeInTheDocument()
   })
 
+  it('colors only out-of-range value cells red in All data history', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{
+        ...ITEM,
+        packet: {
+          ...ITEM.packet,
+          water_level_pct: 74,
+          ph_calibrated: true, ph: 7.9,
+          tds_calibrated: true, tds_ppm: 1201,
+        },
+      }],
+      total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    expect(await screen.findByText('74.00 %')).toBeInTheDocument()
+    expect(screen.getByText('74.00 %').closest('td')).toHaveAttribute('data-alert', 'low')
+    expect(screen.getByText('7.90 pH').closest('td')).toHaveAttribute('data-alert', 'high')
+    expect(screen.getByText('1201 ppm').closest('td')).toHaveAttribute('data-alert', 'high')
+    expect(screen.getByText('27.56 °C').closest('td')).not.toHaveAttribute('data-alert')
+  })
+
+  it('keeps missing or uncalibrated measurements neutral', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{
+        ...ITEM,
+        packet: { ...ITEM.packet, ph: 17.45, ph_calibrated: false, water_level_pct: null },
+      }],
+      total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
+    expect(screen.getAllByText('Not calibrated')[0]?.closest('td')).not.toHaveAttribute('data-alert')
+    expect(screen.getByRole('columnheader', { name: 'Water level' })).toBeInTheDocument()
+    expect(screen.queryAllByText('Low')).toHaveLength(0)
+    expect(screen.queryAllByText('High')).toHaveLength(0)
+  })
+
+  it('colors selected-sensor readings independently of other table columns', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{ ...ITEM, packet: { ...ITEM.packet, ph: 6.2, ph_calibrated: true } }],
+      total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    await screen.findByText('6.20 pH')
+    await userEvent.setup().selectOptions(screen.getByLabelText('Sensor'), 'ph')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Search readings' }))
+    expect(await screen.findByText('6.20 pH')).toBeInTheDocument()
+    expect(screen.getByText('6.20 pH').closest('td')).toHaveAttribute('data-alert', 'low')
+    expect(screen.queryByRole('columnheader', { name: 'Water temperature' })).not.toBeInTheDocument()
+  })
+
   it('shows read faults in the combined view, without inventing readings', async () => {
     vi.mocked(searchEsp32Telemetry).mockResolvedValue({
       items: [{
@@ -212,6 +263,7 @@ describe('simplified ESP32 history', () => {
     })
     mount()
     expect(await screen.findByText('Sensor read: disconnected')).toBeInTheDocument()
+    expect(screen.getByText('Sensor read: disconnected').closest('td')).toHaveAttribute('data-alert', 'fault')
     expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
   })
 

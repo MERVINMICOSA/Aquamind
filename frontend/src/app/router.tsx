@@ -16,14 +16,8 @@ import {
 } from '../layouts/AppLayout'
 
 import {
-  AlertsPage,
-} from '../pages/AlertsPage'
-import {
   DashboardPage,
 } from '../pages/DashboardPage'
-import {
-  FeedingPage,
-} from '../pages/FeedingPage'
 import {
   LoginPage,
 } from '../pages/LoginPage'
@@ -107,12 +101,8 @@ export function AppRoutes() {
           <Route path="actuators" element={<Navigate to="/water-flow" replace />} />
           <Route path="actuators/:actuatorId" element={<Navigate to="/water-flow" replace />} />
 
-          <Route
-            path="feeding"
-            element={
-              <FeedingPage />
-            }
-          />
+          {/* Retired Feeding page; old bookmarks return to the dashboard. */}
+          <Route path="feeding" element={<Navigate to="/" replace />} />
 
           <Route path="refill" element={<Navigate to="/water-flow" replace />} />
           <Route path="automation" element={<Navigate to="/water-flow" replace />} />
@@ -122,12 +112,8 @@ export function AppRoutes() {
             element={<WaterFlowPage />}
           />
 
-          <Route
-            path="alerts"
-            element={
-              <AlertsPage />
-            }
-          />
+          {/* Alerts are now indicated inline on current readings and archived History. */}
+          <Route path="alerts" element={<Navigate to="/sensors" replace />} />
 
 
           <Route

@@ -125,9 +125,7 @@ describe(
             'Dashboard',
             'Sensors',
             'History',
-            'Feeding',
             'Water Flow',
-            'Alerts',
             'Settings',
           ]
         ) {
@@ -140,6 +138,8 @@ describe(
             ),
           ).toBeInTheDocument()
         }
+        expect(screen.queryByRole('link', { name: 'Feeding' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'Alerts' })).not.toBeInTheDocument()
       },
     )
 

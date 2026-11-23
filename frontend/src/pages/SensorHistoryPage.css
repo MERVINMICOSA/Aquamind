@@ -141,3 +141,37 @@
   .sensor-history-export,
   .sensor-history-export button { width: 100%; }
 }
+
+/* Affected values are highlighted individually; the remainder of the row stays neutral. */
+.sensor-history-table td.sensor-history-cell--alert {
+  background: #fff0f0;
+  color: #a02020;
+  box-shadow: inset 3px 0 0 #c63333;
+  font-weight: 700;
+}
+.sensor-history-cell__label {
+  display: block;
+  margin-top: 4px;
+  color: #a02020;
+  font-size: .73rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+.sensor-history-legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 0;
+  color: var(--color-text-muted, #61706a);
+  font-size: .83rem;
+  line-height: 1.5;
+}
+.sensor-history-legend__swatch {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border: 1px solid #c63333;
+  border-radius: 3px;
+  background: #fff0f0;
+}

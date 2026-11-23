@@ -11,6 +11,7 @@ import type { AquaponicsSystem, DashboardSensorReading } from '../types/dashboar
 import type { Esp32RawReadings, Esp32Telemetry } from '../types/esp32Telemetry'
 import { SensorTrendChart } from '../components/sensors/SensorTrendChart'
 import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
+import { readingAlertForPacket } from '../components/dashboard/esp32WarningRules'
 import './SensorHistoryPage.css'
 
 const PAGE_SIZE = 25
@@ -384,6 +385,11 @@ export function SensorHistoryPage() {
                       for each sensor. Choose an individual sensor to view its trend.
                     </p>
                   )}
+                  <p className="sensor-history-legend">
+                    <span className="sensor-history-legend__swatch" aria-hidden="true" />
+                    Red cells indicate readings outside the configured advisory ranges or ESP32 sensor-read faults.
+                    Missing and uncalibrated values are not classified as high or low.
+                  </p>
                   <div className="sensor-history-table-wrap">
                     <table className="sensor-history-table">
                       <thead>
@@ -406,17 +412,31 @@ export function SensorHistoryPage() {
                             {selectedField === null
                               ? FIELDS.map(field => {
                                   const measurement = packetMeasurement(item, field.value)
+                                  const alert = readingAlertForPacket(item.packet, field.value)
                                   return (
-                                    <td key={field.value} title={measurement.detail}>
-                                      {displayValue(measurement, field.value)}
+                                    <td key={field.value} data-alert={alert?.severity}
+                                      className={alert ? 'sensor-history-cell--alert' : undefined}
+                                      title={alert?.message ?? measurement.detail}>
+                                      <span>{displayValue(measurement, field.value)}</span>
+                                      {alert && <small className="sensor-history-cell__label">
+                                        {alert.severity === 'fault' ? 'Sensor fault' : alert.severity === 'low' ? 'Low' : 'High'}
+                                      </small>}
                                     </td>
                                   )
                                 })
                               : (() => {
                                   const measurement = packetMeasurement(item, selectedField.value)
+                                  const alert = readingAlertForPacket(item.packet, selectedField.value)
                                   return (
                                     <>
-                                      <td>{displayValue(measurement, selectedField.value)}</td>
+                                      <td data-alert={alert?.severity}
+                                        className={alert ? 'sensor-history-cell--alert' : undefined}
+                                        title={alert?.message ?? measurement.detail}>
+                                        <span>{displayValue(measurement, selectedField.value)}</span>
+                                        {alert && <small className="sensor-history-cell__label">
+                                          {alert.severity === 'fault' ? 'Sensor fault' : alert.severity === 'low' ? 'Low' : 'High'}
+                                        </small>}
+                                      </td>
                                       <td>{measurement.detail}</td>
                                     </>
                                   )

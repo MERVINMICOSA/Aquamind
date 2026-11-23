@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Esp32SensorPacket } from '../../types/esp32Telemetry'
-import { evaluateEsp32Warnings, isFreshEsp32Packet } from './esp32WarningRules'
+import { evaluateEsp32Warnings, isFreshEsp32Packet, readingAlertForPacket, thresholdAlertForValue } from './esp32WarningRules'
 
 const base: Esp32SensorPacket = {
   type: 'aquamind_sensor', schema_version: 1, device_id: 'esp32-devkit-01',
@@ -48,6 +48,29 @@ describe('ESP32 advisory warning rules', () => {
       },
     })
     expect(warnings).toEqual([])
+  })
+
+  it('shares exact threshold boundaries between live and archived cells', () => {
+    expect(readingAlertForPacket({ ...base, water_level_pct: 74.9 }, 'water_level_pct')?.severity).toBe('low')
+    expect(readingAlertForPacket({ ...base, water_level_pct: 75 }, 'water_level_pct')).toBeNull()
+    expect(readingAlertForPacket({ ...base, ph: 6.4 }, 'ph')?.severity).toBe('low')
+    expect(readingAlertForPacket({ ...base, ph: 7.6 }, 'ph')?.severity).toBe('high')
+    expect(readingAlertForPacket({ ...base, ph: 6.5 }, 'ph')).toBeNull()
+    expect(readingAlertForPacket({ ...base, ph: 7.5 }, 'ph')).toBeNull()
+    expect(readingAlertForPacket({ ...base, tds_ppm: 1000 }, 'tds_ppm')).toBeNull()
+    expect(readingAlertForPacket({ ...base, tds_ppm: 1001 }, 'tds_ppm')?.severity).toBe('high')
+  })
+  it('never colors uncalibrated or non-working sensors as high or low', () => {
+    expect(readingAlertForPacket({ ...base, ph: 17.5, ph_calibrated: false }, 'ph')).toBeNull()
+    expect(readingAlertForPacket({ ...base, tds_ppm: 1500, tds_calibrated: false }, 'tds_ppm')).toBeNull()
+    expect(readingAlertForPacket({
+      ...base, water_level_pct: 10, raw_readings: { ultrasonic: { status: 'not_configured' } },
+    }, 'water_level_pct')).toBeNull()
+    expect(readingAlertForPacket({
+      ...base, water_level_pct: 10, raw_readings: { ultrasonic: { status: 'timeout' } },
+    }, 'water_level_pct')?.severity).toBe('fault')
+    expect(thresholdAlertForValue('water_temp_c', 45)).toBeNull()
+    expect(thresholdAlertForValue('humidity_pct', 99)).toBeNull()
   })
 
   it('never uses old or future timestamps for live warnings', () => {
