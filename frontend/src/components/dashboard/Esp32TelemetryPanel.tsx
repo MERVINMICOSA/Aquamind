@@ -386,10 +386,18 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
           <div className="esp32-telemetry__grid">
             {readings.map(reading => {
               const state = simpleReadingState(reading, nowMs)
+              const alert = state === 'Active' && reading.origin === 'hardware' && reading.field
+                ? thresholdAlertForValue(reading.field, reading.numericValue)
+                : null
               return (
-                <article className="esp32-telemetry__metric" key={reading.label}>
+                <article className="esp32-telemetry__metric" key={reading.label}
+                  data-alert={alert?.severity}
+                  title={alert?.message}>
                   <span>{reading.label}</span>
                   <strong>{reading.value}</strong>
+                  {alert && <span className="esp32-telemetry__alert-label">
+                    {alert.severity === 'low' ? 'Low reading' : 'High reading'} — {alert.message}
+                  </span>}
                   <span className={state === 'Active'
                     ? 'sensor-state sensor-state--enabled'
                     : 'sensor-state sensor-state--disabled'}>
@@ -449,12 +457,22 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
           </p>
 
           <div className="esp32-telemetry__grid">
-            {fields(packet).map(({ label, value }) => (
-              <article className="esp32-telemetry__metric" key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </article>
-            ))}
+            {fields(packet).map(({ field, label, value }) => {
+              const alert = demoPackets === undefined && isFreshEsp32Packet(latest.received_at, nowMs)
+                ? readingAlertForPacket(packet, field)
+                : null
+              return (
+                <article className="esp32-telemetry__metric" key={label}
+                  data-alert={alert?.severity} title={alert?.message}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                  {alert && <span className="esp32-telemetry__alert-label">
+                    {alert.severity === 'fault' ? 'Sensor fault'
+                      : alert.severity === 'low' ? 'Low reading' : 'High reading'} — {alert.message}
+                  </span>}
+                </article>
+              )
+            })}
           </div>
 
           <div className="esp32-telemetry__diagnostics">
