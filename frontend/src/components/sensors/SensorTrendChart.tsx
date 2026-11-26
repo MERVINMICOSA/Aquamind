@@ -82,6 +82,7 @@ function formatChartTime(
   ).toLocaleString(
     undefined,
     {
+      timeZone: 'Asia/Manila',
       month:
         'short',
 

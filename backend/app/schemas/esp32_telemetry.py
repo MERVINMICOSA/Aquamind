@@ -97,6 +97,38 @@ class Esp32SensorPacket(BaseModel):
         return self
 
 
+CorrectionField = Literal["water_temp_c", "ph", "tds_ppm", "water_level_pct",
+                          "water_height_cm", "distance_cm", "air_temp_c", "humidity_pct"]
+CORRECTION_RANGES = {
+    "water_temp_c": (-10, 90), "ph": (0, 14), "tds_ppm": (0, 100000),
+    "water_level_pct": (0, 100), "water_height_cm": (0, 100000),
+    "distance_cm": (0, 100000), "air_temp_c": (-50, 90), "humidity_pct": (0, 100),
+}
+
+
+class Esp32CorrectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    field: CorrectionField
+    value: float
+    reason: str = Field(min_length=3, max_length=500)
+
+    @model_validator(mode="after")
+    def check_value(self) -> Self:
+        low, high = CORRECTION_RANGES[self.field]
+        if not low <= self.value <= high:
+            raise ValueError("Correction is outside the supported sensor range")
+        self.reason = self.reason.strip()
+        if len(self.reason) < 3:
+            raise ValueError("A correction reason is required")
+        return self
+
+
+class Esp32CorrectionEntry(Esp32CorrectionRequest):
+    original_value: float | None
+    corrected_at: datetime
+    editor_id: UUID
+
+
 class Esp32TelemetryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,6 +136,8 @@ class Esp32TelemetryResponse(BaseModel):
     system_id: UUID
     received_at: datetime
     packet: Esp32SensorPacket
+    validation_at: datetime | None = None
+    correction_log: list[Esp32CorrectionEntry] | None = None
 
 
 class Esp32TelemetrySearchResponse(BaseModel):

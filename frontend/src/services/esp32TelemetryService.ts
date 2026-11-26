@@ -100,3 +100,13 @@ export function updateEsp32CaptureSettings(
     },
   )
 }
+
+export function addEsp32Correction(
+  systemId: string, telemetryId: string,
+  field: Exclude<Esp32HistoryField, 'all'>, value: number, reason: string,
+): Promise<Esp32Telemetry> {
+  return apiRequest<Esp32Telemetry>(
+    `esp32/telemetry/${encodeURIComponent(telemetryId)}/corrections?system_id=${encodeURIComponent(systemId)}`,
+    { method: 'POST', body: JSON.stringify({ field, value, reason }) },
+  )
+}
