@@ -175,3 +175,11 @@
   border-radius: 3px;
   background: #fff0f0;
 }
+
+/* Source metadata is neutral; red styling is reserved for actual sensor alerts. */
+.sensor-history-source {
+  color: var(--color-text-muted, #61706a);
+  font-size: .83rem;
+}
+
+.sensor-history-source summary { cursor: pointer; font-size: .75rem; }
