@@ -10,13 +10,15 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, get_db_session, require_admin
 from app.models.esp32_capture import Esp32CaptureState
 from app.models.esp32_telemetry import Esp32Telemetry
-from app.models.system import AquaponicsSystem
+from app.models.system import AquaponicsSystem, User
+from app.models.other import AuditLog
 from app.schemas.esp32_telemetry import (
     Esp32TelemetryResponse, Esp32TelemetrySearchResponse,
     Esp32CaptureUpdate, Esp32CaptureResponse,
@@ -233,3 +235,132 @@ async def history_esp32_telemetry(
         .limit(limit)
     )
     return list((await session.execute(query)).scalars().all())
+
+
+# Corrections are separate operator assertions, never firmware measurements.
+# The existing audit_logs table provides append-only application-level history.
+CorrectionField = Literal[
+    "water_temp_c", "ph", "tds_ppm", "water_level_pct",
+    "water_height_cm", "distance_cm", "air_temp_c", "humidity_pct",
+]
+_CORRECTION_BOUNDS = {
+    "water_temp_c": (-10, 90), "ph": (0, 14), "tds_ppm": (0, 100000),
+    "water_level_pct": (0, 100), "water_height_cm": (0, 100000),
+    "distance_cm": (0, 100000), "air_temp_c": (-50, 90),
+    "humidity_pct": (0, 100),
+}
+_CORRECTION_RAW_KEYS = {
+    "water_temp_c": "water_temperature", "ph": "ph", "tds_ppm": "tds",
+    "water_level_pct": "ultrasonic", "water_height_cm": "ultrasonic",
+    "distance_cm": "ultrasonic", "air_temp_c": "air_temperature",
+    "humidity_pct": "humidity",
+}
+
+
+class HistoryCorrectionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
+    field: CorrectionField
+    corrected_value: float
+    reason: str = Field(min_length=1, max_length=1000)
+    evidence: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason", "evidence", mode="before")
+    @classmethod
+    def trim_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class HistoryCorrectionResponse(BaseModel):
+    id: UUID
+    field: CorrectionField
+    original_value: float
+    corrected_value: float
+    reason: str
+    evidence: str
+    recorded_by: str
+    created_at: datetime
+
+
+def _correction_view(log: AuditLog) -> dict:
+    return {
+        "id": log.id,
+        "field": log.new_value["field"],
+        "original_value": log.old_value["value"],
+        "corrected_value": log.new_value["value"],
+        "reason": log.new_value["reason"],
+        "evidence": log.new_value["evidence"],
+        "recorded_by": log.new_value["recorded_by"],
+        "created_at": log.created_at,
+    }
+
+
+async def _correction_packet(
+    session: AsyncSession, system_id: UUID, packet_id: UUID,
+) -> Esp32Telemetry:
+    await _check_system(session, system_id)
+    packet = await session.get(Esp32Telemetry, packet_id)
+    if packet is None or packet.system_id != system_id:
+        raise HTTPException(status_code=404, detail="Saved packet not found")
+    return packet
+
+
+@router.get(
+    "/telemetry/{packet_id}/corrections",
+    response_model=list[HistoryCorrectionResponse],
+)
+async def list_history_corrections(
+    packet_id: UUID, system_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    await _correction_packet(session, system_id, packet_id)
+    logs = (await session.execute(
+        select(AuditLog).where(
+            AuditLog.entity_type == "esp32_telemetry",
+            AuditLog.entity_id == packet_id,
+            AuditLog.action == "propose_history_correction",
+        ).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(100)
+    )).scalars().all()
+    return [_correction_view(log) for log in logs]
+
+
+@router.post(
+    "/telemetry/{packet_id}/corrections",
+    response_model=HistoryCorrectionResponse,
+    status_code=201,
+)
+async def propose_history_correction(
+    packet_id: UUID, system_id: UUID, correction: HistoryCorrectionInput,
+    session: AsyncSession = Depends(get_db_session),
+    admin: User = Depends(require_admin),
+) -> dict:
+    item = await _correction_packet(session, system_id, packet_id)
+    field = correction.field
+    low, high = _CORRECTION_BOUNDS[field]
+    if not low <= correction.corrected_value <= high:
+        raise HTTPException(status_code=422, detail="Value outside sensor's supported numerical bounds")
+    original = item.packet.get(field)
+    raw = (item.packet.get("raw_readings") or {}).get(_CORRECTION_RAW_KEYS[field])
+    if (
+        type(original) not in (int, float)
+        or not low <= original <= high
+        or (raw is not None and raw.get("status") != "ok")
+        or (field == "ph" and not item.packet.get("ph_calibrated"))
+        or (field == "tds_ppm" and not item.packet.get("tds_calibrated"))
+    ):
+        raise HTTPException(status_code=422, detail="Missing or failed measurements cannot be replaced")
+    if original == correction.corrected_value:
+        raise HTTPException(status_code=422, detail="Correction must differ from original value")
+    log = AuditLog(
+        user_id=admin.id, action="propose_history_correction",
+        entity_type="esp32_telemetry", entity_id=item.id,
+        old_value={"field": field, "value": original, "received_at": item.received_at.isoformat(),
+                   "device_id": item.device_id, "sequence": item.sequence, "uptime_ms": item.uptime_ms},
+        new_value={"field": field, "value": correction.corrected_value,
+                   "reason": correction.reason, "evidence": correction.evidence,
+                   "recorded_by": admin.username, "system_id": str(system_id)},
+        source="manual_validation", created_at=datetime.now(timezone.utc),
+    )
+    session.add(log)
+    await session.commit()
+    await session.refresh(log)
+    return _correction_view(log)
