@@ -105,11 +105,12 @@ describe('simplified ESP32 history', () => {
       total: 1, limit: 25, offset: 0,
     })
     mount()
-    const source = await screen.findByText('Historical record')
-    expect(screen.getByRole('columnheader', { name: 'Source' })).toBeInTheDocument()
-    expect(source).toHaveClass('sensor-history-source')
-    expect(source).not.toHaveClass('sensor-history-cell__label')
-    expect(source).not.toHaveAttribute('data-alert')
+    await screen.findByText('7.90 pH')
+    expect(screen.queryByRole('columnheader', { name: 'Source' })).not.toBeInTheDocument()
+    const details = screen.getByText('Record details').closest('details')
+    expect(details).not.toHaveAttribute('open')
+    expect(details).toHaveTextContent('Historical record — imported schedule')
+    expect(details).not.toHaveClass('sensor-history-cell__label')
     expect(screen.getByText('7.90 pH').closest('td')).toHaveAttribute('data-alert', 'high')
   })
 
