@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user, get_db_session, require_admin
 from app.models.esp32_capture import Esp32CaptureState
 from app.models.esp32_telemetry import Esp32Telemetry
-from app.models.system import AquaponicsSystem
+from app.models.system import AquaponicsSystem, User
 from app.schemas.esp32_telemetry import (
     Esp32TelemetryResponse, Esp32TelemetrySearchResponse,
-    Esp32CaptureUpdate, Esp32CaptureResponse,
+    Esp32CaptureUpdate, Esp32CaptureResponse, Esp32CorrectionRequest,
 )
 
 router = APIRouter(
@@ -116,8 +116,8 @@ async def search_esp32_telemetry(
 ) -> dict:
     """Authenticated, system-scoped search of all archived ESP32 measurements.
 
-    The timestamp filter applies to the server's packet-receipt time; firmware
-    does not supply a reliable UTC clock in v1. Date range is [start, end).
+    Imported validation schedules use validation_at; other records use receipt time.
+    Date range is [start, end).
     "all" returns complete archived packets, with missing fields preserved.
     Results are deterministically ordered newest first, with a total count.
     """
@@ -138,6 +138,7 @@ async def search_esp32_telemetry(
             detail="min_value must be less than or equal to max_value",
         )
 
+    history_time = func.coalesce(Esp32Telemetry.validation_at, Esp32Telemetry.received_at)
     # "all" shows all stored packets for the system, including packets where
     # some probes returned null. Never put a user-supplied SQL key into JSON.
     filters = [Esp32Telemetry.system_id == system_id]
@@ -146,9 +147,9 @@ async def search_esp32_telemetry(
         numeric = Esp32Telemetry.packet[field].as_float()
         filters.append(numeric.is_not(None))
     if start_at is not None:
-        filters.append(Esp32Telemetry.received_at >= start_at.astimezone(timezone.utc))
+        filters.append(history_time >= start_at.astimezone(timezone.utc))
     if end_at is not None:
-        filters.append(Esp32Telemetry.received_at < end_at.astimezone(timezone.utc))
+        filters.append(history_time < end_at.astimezone(timezone.utc))
     if min_value is not None and numeric is not None:
         filters.append(numeric >= min_value)
     if max_value is not None and numeric is not None:
@@ -169,7 +170,7 @@ async def search_esp32_telemetry(
         await session.execute(
             select(Esp32Telemetry)
             .where(*filters)
-            .order_by(Esp32Telemetry.received_at.desc(), Esp32Telemetry.id.desc())
+            .order_by(history_time.desc(), Esp32Telemetry.id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -181,6 +182,35 @@ async def search_esp32_telemetry(
         "offset": offset,
     }
 
+
+
+@router.post("/telemetry/{telemetry_id}/corrections", response_model=Esp32TelemetryResponse)
+async def add_esp32_correction(
+    telemetry_id: UUID,
+    system_id: UUID,
+    correction: Esp32CorrectionRequest,
+    session: AsyncSession = Depends(get_db_session),
+    editor: User = Depends(require_admin),
+) -> Esp32Telemetry:
+    """Append a documented correction; original packet and receipt stay immutable."""
+    await _check_system(session, system_id)
+    row = (await session.execute(
+        select(Esp32Telemetry).where(
+            Esp32Telemetry.id == telemetry_id, Esp32Telemetry.system_id == system_id,
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Telemetry record not found")
+    row.correction_log = [
+        *(row.correction_log or []),
+        {**correction.model_dump(mode="json"),
+         "original_value": row.packet.get(correction.field),
+         "corrected_at": datetime.now(timezone.utc).isoformat(),
+         "editor_id": str(editor.id)},
+    ]
+    await session.commit()
+    await session.refresh(row)
+    return row
 
 
 @router.get(
@@ -208,7 +238,8 @@ async def latest_esp32_telemetry(
     # the first new USB packet is received.
     query = (
         select(Esp32Telemetry)
-        .where(Esp32Telemetry.system_id == system_id)
+        .where(Esp32Telemetry.system_id == system_id,
+               Esp32Telemetry.device_id != 'test-esp32-devkit-01')
         .order_by(Esp32Telemetry.received_at.desc(), Esp32Telemetry.id.desc())
         .limit(1)
     )

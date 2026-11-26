@@ -1,5 +1,6 @@
 import type { Esp32Telemetry, Esp32RawReadings } from '../types/esp32Telemetry'
 import type { Esp32HistoryField } from '../services/esp32TelemetryService'
+import { historyTime, philippineIso } from './esp32HistoryTime'
 
 type Field = Exclude<Esp32HistoryField, 'all'>
 
@@ -43,13 +44,16 @@ export function buildEsp32HistoryCsv(items: Esp32Telemetry[], chosenField: Esp32
     : FIELDS.filter(field => field.key === chosenField)
 
   const header = ['Received at (UTC)', 'Device ID', 'Sequence', 'Uptime (ms)',
-    ...fields.flatMap(field => [field.header, `${field.header} status`])]
+    ...fields.flatMap(field => [field.header, `${field.header} status`]), 'Display time (PHT)', 'Data source', 'Manual correction log (JSON)']
   const rows: (string | number | null)[][] = items.map(item => [
     item.received_at,
     item.packet.device_id,
     item.packet.sequence,
     item.packet.uptime_ms,
     ...fields.flatMap(field => measurement(item, field)),
+    philippineIso(historyTime(item)),
+    item.packet.device_id === 'test-esp32-devkit-01' ? 'Imported validation; original UTC label is not verified receipt' : 'Automatic receipt',
+    JSON.stringify(item.correction_log ?? []),
   ])
   return [header, ...rows].map(row => row.map(safeCell).join(',')).join('\r\n') + '\r\n'
 }

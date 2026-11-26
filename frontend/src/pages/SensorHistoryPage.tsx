@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
+import { AuthContext } from '../contexts/authContext'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { listSystems } from '../services/dashboardService'
 import {
   searchEsp32Telemetry,
+  addEsp32Correction,
   type Esp32HistoryField,
   type Esp32HistorySearchResult,
 } from '../services/esp32TelemetryService'
@@ -11,6 +13,7 @@ import type { AquaponicsSystem, DashboardSensorReading } from '../types/dashboar
 import type { Esp32RawReadings, Esp32Telemetry } from '../types/esp32Telemetry'
 import { SensorTrendChart } from '../components/sensors/SensorTrendChart'
 import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
+import { historyTime, formatPhilippineTime, philippineDayStart, philippineDayEnd } from '../utils/esp32HistoryTime'
 import { readingAlertForPacket } from '../components/dashboard/esp32WarningRules'
 import './SensorHistoryPage.css'
 
@@ -46,24 +49,9 @@ const DEFAULT_FILTERS: HistoryFilters = {
   to: '',
 }
 
-function localStartIso(day: string): string | undefined {
-  if (!day) return undefined
-  const date = new Date(`${day}T00:00:00`)
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
-}
-
-function localEndExclusiveIso(day: string): string | undefined {
-  if (!day) return undefined
-  const date = new Date(`${day}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return undefined
-  date.setDate(date.getDate() + 1)
-  return date.toISOString()
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
-}
+const localStartIso = philippineDayStart
+const localEndExclusiveIso = philippineDayEnd
+const formatTime = formatPhilippineTime
 
 function packetMeasurement(
   item: Esp32Telemetry,
@@ -110,6 +98,13 @@ function displayValue(
 }
 
 export function SensorHistoryPage() {
+  const canEdit = useContext(AuthContext)?.user?.role === 'admin'
+  const [editing, setEditing] = useState<Esp32Telemetry | null>(null)
+  const [editField, setEditField] = useState<MeasurementField>('water_temp_c')
+  const [editValue, setEditValue] = useState('')
+  const [editReason, setEditReason] = useState('')
+  const [editError, setEditError] = useState('')
+  const [saving, setSaving] = useState(false)
   const [systems, setSystems] = useState<AquaponicsSystem[]>([])
   const [systemId, setSystemId] = useState('')
   const [systemsStatus, setSystemsStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -199,7 +194,7 @@ export function SensorHistoryPage() {
         return [{
           id: item.id,
           sensor_id: selectedField.value,
-          recorded_at: item.received_at,
+          recorded_at: historyTime(item),
           value_numeric: measurement.value,
           unit: selectedField.unit,
           quality_status: selectedField.diagnostic ? 'unverified' : 'good',
@@ -208,6 +203,23 @@ export function SensorHistoryPage() {
           created_at: item.received_at,
         }]
       })
+
+  async function saveCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editing || saving || !canEdit) return
+    const value = Number(editValue)
+    if (!editValue.trim() || !Number.isFinite(value) || editReason.trim().length < 3) {
+      setEditError('Enter a valid value and reason.'); return
+    }
+    setSaving(true); setEditError('')
+    try {
+      await addEsp32Correction(systemId, editing.id, editField, value, editReason.trim())
+      setEditing(null)
+      setRefreshCounter(current => current + 1)
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Unable to save correction.')
+    } finally { setSaving(false) }
+  }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -276,7 +288,7 @@ export function SensorHistoryPage() {
           <h1>Sensor History</h1>
           <p className="page-description">
             View all saved ESP32 sensor readings together or choose one sensor.
-            Dates use your browser's local timezone; timestamps reflect Raspberry Pi receipt time.
+            Dates use Philippine time (UTC+8). Imported validation schedules are labeled separately from automatic receipt times.
           </p>
         </div>
         <Link to="/sensors" className="sensor-detail-link">Current sensors</Link>
@@ -390,11 +402,28 @@ export function SensorHistoryPage() {
                     Red cells indicate readings outside the configured advisory ranges or ESP32 sensor-read faults.
                     Missing and uncalibrated values are not classified as high or low.
                   </p>
+                  {editing && canEdit && (
+                    <form className="sensor-history-filters surface-panel" onSubmit={saveCorrection}>
+                      <h3>Document a manual correction</h3>
+                      <p>Record: {formatTime(historyTime(editing))}. Original readings remain unchanged. Corrections are labeled separately and included in exports.</p>
+                      <label>Sensor to correct
+                        <select value={editField} onChange={event => setEditField(event.target.value as MeasurementField)}>
+                          {FIELDS.map(field => <option key={field.value} value={field.value}>{field.label}</option>)}
+                        </select>
+                      </label>
+                      <p>Original: {editing.packet[editField] ?? 'No reading'} {FIELDS.find(field => field.value === editField)?.unit}</p>
+                      <label>Corrected value<input required type="number" step="any" value={editValue} onChange={event => setEditValue(event.target.value)} /></label>
+                      <label>Reason / reference measurement<textarea required minLength={3} maxLength={500} value={editReason} onChange={event => setEditReason(event.target.value)} /></label>
+                      {editError && <p role="alert">{editError}</p>}
+                      <button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save correction'}</button>
+                      <button type="button" disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
+                    </form>
+                  )}
                   <div className="sensor-history-table-wrap">
                     <table className="sensor-history-table">
                       <thead>
                         <tr>
-                          <th scope="col">Received</th>
+                          <th scope="col">Time (PHT) / source</th>
                           {selectedField === null
                             ? FIELDS.map(field => (
                                 <th scope="col" key={field.value}>{field.label}</th>
@@ -403,12 +432,19 @@ export function SensorHistoryPage() {
                                 <th scope="col">Reading</th>
                                 <th scope="col">Status</th>
                               </>}
+                          <th scope="col">Manual corrections</th>
                         </tr>
                       </thead>
                       <tbody>
                         {items.map(item => (
                           <tr key={item.id}>
-                            <td>{formatTime(item.received_at)}</td>
+                            <td>
+                              {formatTime(historyTime(item))}
+                              <small className="sensor-history-cell__label">
+                                {item.packet.device_id === 'test-esp32-devkit-01'
+                                  ? 'Imported validation — not verified receipt' : 'Automatic receipt'}
+                              </small>
+                            </td>
                             {selectedField === null
                               ? FIELDS.map(field => {
                                   const measurement = packetMeasurement(item, field.value)
@@ -441,6 +477,24 @@ export function SensorHistoryPage() {
                                     </>
                                   )
                                 })()}
+                            <td>
+                              {!!item.correction_log?.length && (
+                                <details>
+                                  <summary>{item.correction_log.length} documented correction(s)</summary>
+                                  {item.correction_log.map((entry, index) => (
+                                    <p key={index}>
+                                      {FIELDS.find(field => field.value === entry.field)?.label}: {entry.original_value ?? 'No reading'} → {entry.value}
+                                      {' · '}{entry.reason} {' · '}{formatTime(entry.corrected_at)}
+                                      <small> (manual, not a device reading)</small>
+                                    </p>
+                                  ))}
+                                </details>
+                              )}
+                              {canEdit && <button type="button" onClick={() => {
+                                setEditing(item); setEditField(selectedField?.value ?? 'water_temp_c')
+                                setEditValue(''); setEditReason(''); setEditError('')
+                              }}>Edit data</button>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

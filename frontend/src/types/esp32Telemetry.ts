@@ -59,9 +59,20 @@ export interface Esp32SensorPacket {
   raw_readings?: Esp32RawReadings | null
 }
 
+export interface Esp32Correction {
+  field: 'water_temp_c' | 'ph' | 'tds_ppm' | 'water_level_pct' | 'water_height_cm' | 'distance_cm' | 'air_temp_c' | 'humidity_pct'
+  value: number
+  reason: string
+  original_value: number | null
+  corrected_at: string
+  editor_id: string
+}
+
 export interface Esp32Telemetry {
   id: string
   system_id: string
   received_at: string
+  validation_at?: string | null
+  correction_log?: Esp32Correction[] | null
   packet: Esp32SensorPacket
 }

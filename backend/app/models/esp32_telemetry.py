@@ -32,3 +32,6 @@ class Esp32Telemetry(UUIDPrimaryKeyMixin, Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
+
+    validation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    correction_log: Mapped[list | None] = mapped_column(JSON)
