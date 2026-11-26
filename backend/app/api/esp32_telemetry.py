@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user, get_db_session, require_admin
 from app.models.esp32_capture import Esp32CaptureState
 from app.models.esp32_telemetry import Esp32Telemetry
-from app.models.system import AquaponicsSystem, User
+from app.models.system import AquaponicsSystem
 from app.schemas.esp32_telemetry import (
     Esp32TelemetryResponse, Esp32TelemetrySearchResponse,
-    Esp32CaptureUpdate, Esp32CaptureResponse, Esp32CorrectionRequest,
+    Esp32CaptureUpdate, Esp32CaptureResponse,
 )
 
 router = APIRouter(
@@ -182,35 +182,6 @@ async def search_esp32_telemetry(
         "offset": offset,
     }
 
-
-
-@router.post("/telemetry/{telemetry_id}/corrections", response_model=Esp32TelemetryResponse)
-async def add_esp32_correction(
-    telemetry_id: UUID,
-    system_id: UUID,
-    correction: Esp32CorrectionRequest,
-    session: AsyncSession = Depends(get_db_session),
-    editor: User = Depends(require_admin),
-) -> Esp32Telemetry:
-    """Append a documented correction; original packet and receipt stay immutable."""
-    await _check_system(session, system_id)
-    row = (await session.execute(
-        select(Esp32Telemetry).where(
-            Esp32Telemetry.id == telemetry_id, Esp32Telemetry.system_id == system_id,
-        ).with_for_update()
-    )).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Telemetry record not found")
-    row.correction_log = [
-        *(row.correction_log or []),
-        {**correction.model_dump(mode="json"),
-         "original_value": row.packet.get(correction.field),
-         "corrected_at": datetime.now(timezone.utc).isoformat(),
-         "editor_id": str(editor.id)},
-    ]
-    await session.commit()
-    await session.refresh(row)
-    return row
 
 
 @router.get(

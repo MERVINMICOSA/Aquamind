@@ -4,6 +4,6 @@ The workbook `DATE` and `TIME` columns describe intended Philippine validation c
 
 Sensor History uses validation_at when present, otherwise received_at; searches and displayed history times use Asia/Manila. CSV retains original data, an explicit PHT display time, source and manual correction log. Original-value charts and threshold warnings still use original measurements, not manual corrections.
 
-Administrators can append a documented numeric correction to an individual record. The original packet remains immutable, and the correction contains the reason, original value, editor ID and server timestamp. No raw diagnostics or calibration claims are changed. Corrections are displayed in a separate column and included in CSV. The migration does not delete readings. Back up the database before migrating; downgrading requires restoring the pre-migration backup.
+Sensor History is read-only. Existing correction logs remain accessible in the UI and CSV, but the manual correction write endpoint has been removed. The compact Workbook / ESP32 labels distinguish the two sources. The migration does not delete readings. Back up the database before migrating; downgrading requires restoring the pre-migration backup.
 
 Deploy with the existing service configuration: stop the service, back up the database, run Alembic upgrade head in the configured backend environment, build and publish the frontend, then restart the service and verify history. Keep the ESP32 disconnected until verified.

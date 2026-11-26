@@ -219,23 +219,28 @@ async def test_imported_schedule_search_preserves_original_timestamp(client, tes
     assert item["packet"]["device_id"] == "test-esp32-devkit-01"
 
 
-async def test_correction_appends_audit_without_overwriting_packet(client, test_session):
-    system_id, other_id = await populate_history(test_session)
+async def test_history_is_read_only_and_preserves_existing_corrections(client, test_session):
+    system_id, _ = await populate_history(test_session)
     row = (await test_session.execute(select(Esp32Telemetry).where(
         Esp32Telemetry.system_id == system_id, Esp32Telemetry.sequence == 0
     ))).scalar_one()
-    url = f"/api/v1/esp32/telemetry/{row.id}/corrections"
-    payload = {"field": "water_temp_c", "value": 25.3, "reason": "Reference thermometer"}
-    for value in (25.3, 25.4):
-        result = await client.post(url, params={"system_id": str(system_id)},
-                                   json={**payload, "value": value})
-        assert result.status_code == 200, result.text
-        assert result.json()["packet"]["water_temp_c"] == 25.0
-    log = result.json()["correction_log"]
-    assert [entry["value"] for entry in log] == [25.3, 25.4]
-    assert all(entry["original_value"] == 25.0 and entry["editor_id"] for entry in log)
-    wrong_system = await client.post(url, params={"system_id": str(other_id)}, json=payload)
-    assert wrong_system.status_code == 404
-    invalid = await client.post(url, params={"system_id": str(system_id)},
-                                json={**payload, "value": 900})
-    assert invalid.status_code == 422
+    row.correction_log = [{
+        "field": "water_temp_c", "value": 25.3, "reason": "Reference thermometer",
+        "original_value": 25.0, "editor_id": str(uuid4()),
+        "corrected_at": datetime.now(timezone.utc).isoformat(),
+    }]
+    await test_session.commit()
+    response = await client.post(
+        f"/api/v1/esp32/telemetry/{row.id}/corrections",
+        params={"system_id": str(system_id)},
+        json={"field": "water_temp_c", "value": 25.4, "reason": "Reference thermometer"},
+    )
+    assert response.status_code in (404, 405)
+    history = await client.get("/api/v1/esp32/telemetry/search", params={
+        "system_id": str(system_id),
+    })
+    assert history.status_code == 200
+    item = next(x for x in history.json()["items"] if x["id"] == str(row.id))
+    assert item["packet"]["water_temp_c"] == 25.0
+    assert len(item["correction_log"]) == 1
+    assert item["correction_log"][0]["value"] == 25.3

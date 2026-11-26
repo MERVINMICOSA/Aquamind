@@ -1,11 +1,9 @@
-import { useContext, useEffect, useState } from 'react'
-import { AuthContext } from '../contexts/authContext'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { listSystems } from '../services/dashboardService'
 import {
   searchEsp32Telemetry,
-  addEsp32Correction,
   type Esp32HistoryField,
   type Esp32HistorySearchResult,
 } from '../services/esp32TelemetryService'
@@ -98,13 +96,6 @@ function displayValue(
 }
 
 export function SensorHistoryPage() {
-  const canEdit = useContext(AuthContext)?.user?.role === 'admin'
-  const [editing, setEditing] = useState<Esp32Telemetry | null>(null)
-  const [editField, setEditField] = useState<MeasurementField>('water_temp_c')
-  const [editValue, setEditValue] = useState('')
-  const [editReason, setEditReason] = useState('')
-  const [editError, setEditError] = useState('')
-  const [saving, setSaving] = useState(false)
   const [systems, setSystems] = useState<AquaponicsSystem[]>([])
   const [systemId, setSystemId] = useState('')
   const [systemsStatus, setSystemsStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -186,6 +177,7 @@ export function SensorHistoryPage() {
     ? null
     : FIELDS.find(item => item.value === applied.field) ?? null
   const items = visible?.data.items ?? []
+  const hasCorrections = items.some(item => !!item.correction_log?.length)
   const chartRows: DashboardSensorReading[] = selectedField === null
     ? []
     : items.flatMap(item => {
@@ -203,23 +195,6 @@ export function SensorHistoryPage() {
           created_at: item.received_at,
         }]
       })
-
-  async function saveCorrection(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!editing || saving || !canEdit) return
-    const value = Number(editValue)
-    if (!editValue.trim() || !Number.isFinite(value) || editReason.trim().length < 3) {
-      setEditError('Enter a valid value and reason.'); return
-    }
-    setSaving(true); setEditError('')
-    try {
-      await addEsp32Correction(systemId, editing.id, editField, value, editReason.trim())
-      setEditing(null)
-      setRefreshCounter(current => current + 1)
-    } catch (error) {
-      setEditError(error instanceof Error ? error.message : 'Unable to save correction.')
-    } finally { setSaving(false) }
-  }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -288,7 +263,7 @@ export function SensorHistoryPage() {
           <h1>Sensor History</h1>
           <p className="page-description">
             View all saved ESP32 sensor readings together or choose one sensor.
-            Dates use Philippine time (UTC+8). Imported validation schedules are labeled separately from automatic receipt times.
+            Dates use Philippine time (UTC+8). Workbook timestamps represent the imported schedule; ESP32 timestamps represent automatic receipt.
           </p>
         </div>
         <Link to="/sensors" className="sensor-detail-link">Current sensors</Link>
@@ -402,28 +377,11 @@ export function SensorHistoryPage() {
                     Red cells indicate readings outside the configured advisory ranges or ESP32 sensor-read faults.
                     Missing and uncalibrated values are not classified as high or low.
                   </p>
-                  {editing && canEdit && (
-                    <form className="sensor-history-filters surface-panel" onSubmit={saveCorrection}>
-                      <h3>Document a manual correction</h3>
-                      <p>Record: {formatTime(historyTime(editing))}. Original readings remain unchanged. Corrections are labeled separately and included in exports.</p>
-                      <label>Sensor to correct
-                        <select value={editField} onChange={event => setEditField(event.target.value as MeasurementField)}>
-                          {FIELDS.map(field => <option key={field.value} value={field.value}>{field.label}</option>)}
-                        </select>
-                      </label>
-                      <p>Original: {editing.packet[editField] ?? 'No reading'} {FIELDS.find(field => field.value === editField)?.unit}</p>
-                      <label>Corrected value<input required type="number" step="any" value={editValue} onChange={event => setEditValue(event.target.value)} /></label>
-                      <label>Reason / reference measurement<textarea required minLength={3} maxLength={500} value={editReason} onChange={event => setEditReason(event.target.value)} /></label>
-                      {editError && <p role="alert">{editError}</p>}
-                      <button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save correction'}</button>
-                      <button type="button" disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
-                    </form>
-                  )}
                   <div className="sensor-history-table-wrap">
                     <table className="sensor-history-table">
                       <thead>
                         <tr>
-                          <th scope="col">Time (PHT) / source</th>
+                          <th scope="col">Date and time (PHT)</th>
                           {selectedField === null
                             ? FIELDS.map(field => (
                                 <th scope="col" key={field.value}>{field.label}</th>
@@ -432,7 +390,7 @@ export function SensorHistoryPage() {
                                 <th scope="col">Reading</th>
                                 <th scope="col">Status</th>
                               </>}
-                          <th scope="col">Manual corrections</th>
+                          {hasCorrections && <th scope="col">Correction history</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -442,7 +400,7 @@ export function SensorHistoryPage() {
                               {formatTime(historyTime(item))}
                               <small className="sensor-history-cell__label">
                                 {item.packet.device_id === 'test-esp32-devkit-01'
-                                  ? 'Imported validation — not verified receipt' : 'Automatic receipt'}
+                                  ? 'Workbook' : 'ESP32'}
                               </small>
                             </td>
                             {selectedField === null
@@ -477,6 +435,7 @@ export function SensorHistoryPage() {
                                     </>
                                   )
                                 })()}
+                            {hasCorrections && (
                             <td>
                               {!!item.correction_log?.length && (
                                 <details>
@@ -490,11 +449,8 @@ export function SensorHistoryPage() {
                                   ))}
                                 </details>
                               )}
-                              {canEdit && <button type="button" onClick={() => {
-                                setEditing(item); setEditField(selectedField?.value ?? 'water_temp_c')
-                                setEditValue(''); setEditReason(''); setEditError('')
-                              }}>Edit data</button>}
                             </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
