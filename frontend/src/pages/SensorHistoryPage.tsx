@@ -263,7 +263,7 @@ export function SensorHistoryPage() {
           <h1>Sensor History</h1>
           <p className="page-description">
             View all saved ESP32 sensor readings together or choose one sensor.
-            Dates use Philippine time (UTC+8). Workbook timestamps represent the imported schedule; ESP32 timestamps represent automatic receipt.
+            Dates use Philippine time (UTC+8). Historical records use the previously imported schedule; ESP32 records use automatic receipt times.
           </p>
         </div>
         <Link to="/sensors" className="sensor-detail-link">Current sensors</Link>
@@ -400,7 +400,7 @@ export function SensorHistoryPage() {
                               {formatTime(historyTime(item))}
                               <small className="sensor-history-cell__label">
                                 {item.packet.device_id === 'test-esp32-devkit-01'
-                                  ? 'Workbook' : 'ESP32'}
+                                  ? 'Historical record' : 'ESP32'}
                               </small>
                             </td>
                             {selectedField === null
