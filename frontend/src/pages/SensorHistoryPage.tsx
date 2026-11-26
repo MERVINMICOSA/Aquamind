@@ -9,6 +9,7 @@ import {
 } from '../services/esp32TelemetryService'
 import type { AquaponicsSystem, DashboardSensorReading } from '../types/dashboard'
 import type { Esp32RawReadings, Esp32Telemetry } from '../types/esp32Telemetry'
+import { HistoryCorrectionEditor } from '../components/sensors/HistoryCorrectionEditor'
 import { SensorTrendChart } from '../components/sensors/SensorTrendChart'
 import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
 import { readingAlertForPacket } from '../components/dashboard/esp32WarningRules'
@@ -127,6 +128,7 @@ export function SensorHistoryPage() {
   } | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [editingItem, setEditingItem] = useState<Esp32Telemetry | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
 
@@ -366,6 +368,10 @@ export function SensorHistoryPage() {
               </div>
               {status === 'error' && <p role="alert">{errorMessage} Displaying the last loaded results.</p>}
               {exportMessage && <p className="sensor-history-export-status" role="status">{exportMessage}</p>}
+              {editingItem && (
+                <HistoryCorrectionEditor key={editingItem.id} item={editingItem}
+                  onClose={() => setEditingItem(null)} />
+              )}
               {items.length === 0 ? (
                 <div className="empty-state">
                   <p>No saved readings match this search.</p>
@@ -403,6 +409,7 @@ export function SensorHistoryPage() {
                                 <th scope="col">Reading</th>
                                 <th scope="col">Status</th>
                               </>}
+                          <th scope="col">Corrections</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -441,6 +448,10 @@ export function SensorHistoryPage() {
                                     </>
                                   )
                                 })()}
+                            <td><button type="button" onClick={() => setEditingItem(item)}
+                              aria-label={'Edit reading received ' + formatTime(item.received_at)}>
+                              Edit reading
+                            </button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -462,7 +473,7 @@ export function SensorHistoryPage() {
                 Past data remains available when the ESP32 is offline. Only the
                 first results page refreshes automatically every 15 seconds.
                 Pagination counts saved packets, not individual sensor values.
-                CSV export includes all matching saved packets across pages (up to 50,000), not just the current page.
+                CSV export includes all matching original saved packets across pages (up to 50,000), not just the current page. Manual correction proposals are separate and never replace the original CSV measurements.
               </p>
             </section>
           )}

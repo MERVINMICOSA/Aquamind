@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { apiRequest } from '../services/apiClient'
 import { listSystems } from '../services/dashboardService'
 import { searchEsp32Telemetry } from '../services/esp32TelemetryService'
 import { SensorHistoryPage } from './SensorHistoryPage'
 import { downloadEsp32HistoryCsv } from '../utils/esp32CsvExport'
 
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
 vi.mock('../services/dashboardService', () => ({
   listSystems: vi.fn(),
 }))
@@ -309,4 +311,35 @@ describe('simplified ESP32 history', () => {
     expect(await screen.findByText('No saved readings match this search.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
   })
+})
+
+
+it('saves a documented correction separately and preserves the original cell', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce([]).mockResolvedValueOnce({
+    id: 'correction-1', field: 'water_temp_c', original_value: 27.56,
+    corrected_value: 27.5, reason: 'Reference thermometer comparison',
+    evidence: 'Calibration worksheet reference A', recorded_by: 'admin',
+    created_at: '2026-11-14T00:00:00Z',
+  })
+  mount()
+  await screen.findByText('27.56 °C')
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: /Edit reading received/ }))
+  await screen.findByText('No corrections recorded.')
+  await user.type(screen.getByLabelText('Proposed corrected value'), '27.5')
+  await user.type(screen.getByLabelText('Reason for correction'), 'Reference thermometer comparison')
+  await user.type(screen.getByLabelText('Reference measurement / calibration evidence'), 'Calibration worksheet reference A')
+  await user.click(screen.getByRole('button', { name: 'Save documented correction' }))
+  expect(await screen.findByText(/Correction saved to PostgreSQL/)).toBeInTheDocument()
+  expect(screen.getByText('27.56 °C')).toBeInTheDocument()
+  expect(apiRequest).toHaveBeenLastCalledWith(
+    'esp32/telemetry/record-1/corrections?system_id=system-one',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        field: 'water_temp_c', corrected_value: 27.5,
+        reason: 'Reference thermometer comparison', evidence: 'Calibration worksheet reference A',
+      }),
+    }),
+  )
 })
