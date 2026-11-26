@@ -98,6 +98,21 @@ describe('simplified ESP32 history', () => {
     )
   })
 
+  it('shows historical source separately without a red alert label', async () => {
+    vi.mocked(searchEsp32Telemetry).mockResolvedValue({
+      items: [{ ...ITEM, packet: { ...ITEM.packet, device_id: 'test-esp32-devkit-01',
+        ph_calibrated: true, ph: 7.9 } }],
+      total: 1, limit: 25, offset: 0,
+    })
+    mount()
+    const source = await screen.findByText('Historical record')
+    expect(screen.getByRole('columnheader', { name: 'Source' })).toBeInTheDocument()
+    expect(source).toHaveClass('sensor-history-source')
+    expect(source).not.toHaveClass('sensor-history-cell__label')
+    expect(source).not.toHaveAttribute('data-alert')
+    expect(screen.getByText('7.90 pH').closest('td')).toHaveAttribute('data-alert', 'high')
+  })
+
   it('uses the active system automatically even when it is not first', async () => {
     vi.mocked(listSystems).mockResolvedValue([
       { ...SYSTEM, id: 'old-system', name: 'Inactive', is_active: false },

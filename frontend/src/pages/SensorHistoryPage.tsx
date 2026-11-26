@@ -382,6 +382,7 @@ export function SensorHistoryPage() {
                       <thead>
                         <tr>
                           <th scope="col">Date and time (PHT)</th>
+                          <th scope="col">Source</th>
                           {selectedField === null
                             ? FIELDS.map(field => (
                                 <th scope="col" key={field.value}>{field.label}</th>
@@ -398,10 +399,10 @@ export function SensorHistoryPage() {
                           <tr key={item.id}>
                             <td>
                               {formatTime(historyTime(item))}
-                              <small className="sensor-history-cell__label">
-                                {item.packet.device_id === 'test-esp32-devkit-01'
-                                  ? 'Historical record' : 'ESP32'}
-                              </small>
+                            </td>
+                            <td className="sensor-history-source">
+                              {item.packet.device_id === 'test-esp32-devkit-01'
+                                ? 'Historical record' : 'ESP32'}
                             </td>
                             {selectedField === null
                               ? FIELDS.map(field => {
