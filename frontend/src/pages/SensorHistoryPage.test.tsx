@@ -76,6 +76,8 @@ describe('simplified ESP32 history', () => {
     mount()
     expect(await screen.findByText('27.56 °C')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Sensor History' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit data/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Correction history' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Sensor')).toHaveValue('all')
     expect(screen.getByRole('columnheader', { name: 'Water temperature' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Air temperature' })).toBeInTheDocument()
