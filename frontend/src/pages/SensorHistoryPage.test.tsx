@@ -98,7 +98,7 @@ describe('simplified ESP32 history', () => {
     )
   })
 
-  it('shows historical source separately without a red alert label', async () => {
+  it('shows historical readings without per-row source details and preserves sensor alerts', async () => {
     vi.mocked(searchEsp32Telemetry).mockResolvedValue({
       items: [{ ...ITEM, packet: { ...ITEM.packet, device_id: 'test-esp32-devkit-01',
         ph_calibrated: true, ph: 7.9 } }],
@@ -107,10 +107,9 @@ describe('simplified ESP32 history', () => {
     mount()
     await screen.findByText('7.90 pH')
     expect(screen.queryByRole('columnheader', { name: 'Source' })).not.toBeInTheDocument()
-    const details = screen.getByText('Record details').closest('details')
-    expect(details).not.toHaveAttribute('open')
-    expect(details).toHaveTextContent('Historical record — imported schedule')
-    expect(details).not.toHaveClass('sensor-history-cell__label')
+    expect(screen.queryByText('Record details')).not.toBeInTheDocument()
+    expect(screen.queryByText('Historical record — imported schedule')).not.toBeInTheDocument()
+    expect(screen.getByText(/Historical records use the previously imported schedule/)).toBeInTheDocument()
     expect(screen.getByText('7.90 pH').closest('td')).toHaveAttribute('data-alert', 'high')
   })
 

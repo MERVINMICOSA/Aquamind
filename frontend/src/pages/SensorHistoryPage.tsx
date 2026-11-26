@@ -398,11 +398,6 @@ export function SensorHistoryPage() {
                           <tr key={item.id}>
                             <td>
                               {formatTime(historyTime(item))}
-                              <details className="sensor-history-source">
-                                <summary>Record details</summary>
-                                <small>{item.packet.device_id === 'test-esp32-devkit-01'
-                                  ? 'Historical record — imported schedule' : 'ESP32 — automatic receipt'}</small>
-                              </details>
                             </td>
                             {selectedField === null
                               ? FIELDS.map(field => {
