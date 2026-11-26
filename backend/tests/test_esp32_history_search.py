@@ -196,3 +196,46 @@ async def test_omitted_field_defaults_to_all_packets(client, test_session):
     })
     assert response.status_code == 200
     assert response.json()["total"] == 5
+
+
+async def test_imported_schedule_search_preserves_original_timestamp(client, test_session):
+    system_id, _ = await populate_history(test_session)
+    row = (await test_session.execute(select(Esp32Telemetry).where(
+        Esp32Telemetry.system_id == system_id, Esp32Telemetry.sequence == 0
+    ))).scalar_one()
+    row.device_id = "test-esp32-devkit-01"
+    row.packet = {**row.packet, "device_id": row.device_id}
+    row.validation_at = datetime(2026, 11, 1, 4, tzinfo=timezone.utc)
+    await test_session.commit()
+    response = await client.get("/api/v1/esp32/telemetry/search", params={
+        "system_id": str(system_id), "start_at": "2026-11-01T11:00:00+08:00",
+        "end_at": "2026-11-01T13:00:00+08:00",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    item = response.json()["items"][0]
+    assert datetime.fromisoformat(item["received_at"]).hour == 12
+    assert datetime.fromisoformat(item["validation_at"]).hour == 4
+    assert item["packet"]["device_id"] == "test-esp32-devkit-01"
+
+
+async def test_correction_appends_audit_without_overwriting_packet(client, test_session):
+    system_id, other_id = await populate_history(test_session)
+    row = (await test_session.execute(select(Esp32Telemetry).where(
+        Esp32Telemetry.system_id == system_id, Esp32Telemetry.sequence == 0
+    ))).scalar_one()
+    url = f"/api/v1/esp32/telemetry/{row.id}/corrections"
+    payload = {"field": "water_temp_c", "value": 25.3, "reason": "Reference thermometer"}
+    for value in (25.3, 25.4):
+        result = await client.post(url, params={"system_id": str(system_id)},
+                                   json={**payload, "value": value})
+        assert result.status_code == 200, result.text
+        assert result.json()["packet"]["water_temp_c"] == 25.0
+    log = result.json()["correction_log"]
+    assert [entry["value"] for entry in log] == [25.3, 25.4]
+    assert all(entry["original_value"] == 25.0 and entry["editor_id"] for entry in log)
+    wrong_system = await client.post(url, params={"system_id": str(other_id)}, json=payload)
+    assert wrong_system.status_code == 404
+    invalid = await client.post(url, params={"system_id": str(system_id)},
+                                json={**payload, "value": 900})
+    assert invalid.status_code == 422
