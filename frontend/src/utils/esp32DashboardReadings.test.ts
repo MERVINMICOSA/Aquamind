@@ -58,6 +58,12 @@ describe('ESP32 archive-derived dashboard data', () => {
     expect(empty.latestReadings).toEqual([])
   })
 
+  it('excludes imported schedules and legacy imports from dashboard cards', () => {
+    const imported = { ...packet, validation_at: packet.received_at }
+    const legacy = { ...packet, packet: { ...packet.packet, device_id: 'test-esp32-devkit-01' } }
+    expect(mergeDashboardEsp32Archive(empty, [imported, legacy], 'system-a')).toEqual(empty)
+  })
+
   it('rejects wrong-system archive records without leaking data', () => {
     expect(mergeDashboardEsp32Archive(empty, [packet], 'system-b')).toEqual(empty)
   })

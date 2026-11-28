@@ -25,3 +25,8 @@ export function philippineIso(value: string): string {
   if (!Number.isFinite(ms)) return ''
   return new Date(ms + 8 * 3600000).toISOString().replace(/Z$/, '+08:00')
 }
+
+/** Imported schedule metadata, plus the legacy import identifier for older backups. */
+export function isImportedHistory(item: Esp32Telemetry): boolean {
+  return item.validation_at != null || item.packet.device_id === 'test-esp32-devkit-01'
+}

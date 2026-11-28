@@ -66,6 +66,21 @@ describe('ESP32 telemetry dashboard panel', () => {
     expect(listEsp32Telemetry).toHaveBeenCalledWith('system-1')
   })
 
+  it('never shows recent imported history as current USB telemetry', async () => {
+    const imported = {
+      id: 'imported', system_id: 'system-1', received_at: new Date().toISOString(),
+      validation_at: new Date().toISOString(), packet,
+    }
+    vi.mocked(listEsp32Telemetry).mockResolvedValue([imported])
+    vi.mocked(getLatestEsp32Telemetry).mockResolvedValue(imported)
+    render(<Esp32TelemetryPanel systemId="system-1" />)
+    expect(await screen.findByText(/No current ESP32 packets available/)).toBeInTheDocument()
+    expect(screen.queryByText('ESP32: Connected')).not.toBeInTheDocument()
+    expect(screen.queryByText('27.56 °C')).not.toBeInTheDocument()
+    expect(screen.getByText('Recent saved history packets')).toBeInTheDocument()
+    expect(screen.getByText(/\(imported history\)/)).toBeInTheDocument()
+  })
+
   it('shows the latest USB reading even when no historical packet is saved', async () => {
     vi.mocked(listEsp32Telemetry).mockResolvedValue([])
     vi.mocked(getLatestEsp32Telemetry).mockResolvedValue({

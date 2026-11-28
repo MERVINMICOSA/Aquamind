@@ -198,6 +198,7 @@ async def latest_esp32_telemetry(
         state is not None and state.latest_packet is not None
         and state.latest_received_at is not None
         and state.latest_packet_id is not None
+        and state.latest_packet.get("device_id") != "test-esp32-devkit-01"
     ):
         return {
             "id": state.latest_packet_id,
@@ -210,6 +211,7 @@ async def latest_esp32_telemetry(
     query = (
         select(Esp32Telemetry)
         .where(Esp32Telemetry.system_id == system_id,
+               Esp32Telemetry.validation_at.is_(None),
                Esp32Telemetry.device_id != 'test-esp32-devkit-01')
         .order_by(Esp32Telemetry.received_at.desc(), Esp32Telemetry.id.desc())
         .limit(1)

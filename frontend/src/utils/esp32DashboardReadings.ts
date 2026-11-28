@@ -4,6 +4,7 @@ import type {
   SystemDashboardOverview,
 } from '../types/dashboard'
 import type { Esp32SensorPacket, Esp32Telemetry, Esp32RawReadings } from '../types/esp32Telemetry'
+import { isImportedHistory } from './esp32HistoryTime'
 
 /**
  * Display-only fallback for sensor packets already saved in esp32_telemetry.
@@ -89,7 +90,7 @@ export function mergeDashboardEsp32Archive(
   const sensors = [...overview.sensors]
   const latestReadings = [...overview.latestReadings]
   const latest = [...packets].filter(item =>
-    item.system_id === systemId && Number.isFinite(Date.parse(item.received_at)),
+    item.system_id === systemId && !isImportedHistory(item) && Number.isFinite(Date.parse(item.received_at)),
   ).sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at))[0]
   if (!latest) return { ...overview, sensors, latestReadings }
 
