@@ -244,3 +244,19 @@ async def test_history_is_read_only_and_preserves_existing_corrections(client, t
     assert item["packet"]["water_temp_c"] == 25.0
     assert len(item["correction_log"]) == 1
     assert item["correction_log"][0]["value"] == 25.3
+
+
+async def test_latest_fallback_excludes_imported_schedules_even_with_original_device_id(client, test_session):
+    system_id, _ = await populate_history(test_session)
+    rows = (await test_session.execute(select(Esp32Telemetry).where(
+        Esp32Telemetry.system_id == system_id,
+    ))).scalars().all()
+    for row in rows:
+        row.validation_at = row.received_at
+    await test_session.commit()
+    latest = await client.get("/api/v1/esp32/telemetry/latest", params={"system_id": str(system_id)})
+    assert latest.status_code == 200
+    assert latest.json() is None
+    history = await client.get("/api/v1/esp32/telemetry/search", params={"system_id": str(system_id)})
+    assert history.status_code == 200
+    assert history.json()["total"] == 5

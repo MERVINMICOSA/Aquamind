@@ -7,3 +7,5 @@ Sensor History uses validation_at when present, otherwise received_at; searches 
 Sensor History is read-only. Existing correction logs remain accessible in the UI and CSV, but the manual correction write endpoint has been removed. The history table has no per-row source labels or expandable source details. The page-level time explanation distinguishes the imported schedule from automatic receipt. Original source information remains in CSV and the database. The migration does not delete readings. Back up the database before migrating; downgrading requires restoring the pre-migration backup.
 
 Deploy with the existing service configuration: stop the service, back up the database, run Alembic upgrade head in the configured backend environment, build and publish the frontend, then restart the service and verify history. Keep the ESP32 disconnected until verified.
+
+Live monitoring excludes imported schedules using validation_at and the legacy import device identifier. Frontend archive fallbacks apply the same restriction. Imported packets remain in Sensor History, and CSV retains source metadata. No database migration is required for this restriction.

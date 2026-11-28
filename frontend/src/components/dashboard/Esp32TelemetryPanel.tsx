@@ -5,6 +5,7 @@ import type { SystemSensorOverview } from '../../services/sensorService'
 import type { DashboardSensor } from '../../types/dashboard'
 import type { Esp32RawReadings, Esp32RawSensorReading, Esp32SensorPacket, Esp32Telemetry } from '../../types/esp32Telemetry'
 import './Esp32TelemetryPanel.css'
+import { isImportedHistory } from '../../utils/esp32HistoryTime'
 import { Esp32TelemetryWarnings } from './Esp32TelemetryWarnings'
 import { isFreshEsp32Packet, readingAlertForPacket, thresholdAlertForValue } from './esp32WarningRules'
 import type { Esp32MeasurementField } from './esp32WarningRules'
@@ -346,7 +347,8 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
   const displayedStatus = demoPackets !== undefined ? 'ready' : status
   const latest = demoPackets !== undefined
     ? displayedPackets[0] ?? null
-    : livePacket ?? displayedPackets[0] ?? null
+    : (livePacket && !isImportedHistory(livePacket) ? livePacket : null)
+      ?? displayedPackets.find(item => !isImportedHistory(item)) ?? null
   const packet = latest?.packet
   const connection = demoPackets !== undefined
     ? { state: 'unknown', label: 'Demo preview', detail: 'Sample data only; no physical ESP32 connection checked.' }
@@ -446,7 +448,7 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
         <p role="alert">Cannot refresh ESP32 data. Previously saved values may be stale.</p>
       )}
       {displayedStatus === 'ready' && latest === null && (
-        <p>No ESP32 packets received for this system yet.</p>
+        <p>No current ESP32 packets available. Saved history is available on the Sensor History page.</p>
       )}
 
       {latest !== null && packet !== undefined && (
@@ -524,16 +526,20 @@ export function Esp32TelemetryPanel({ systemId, demoPackets, mode = 'details' }:
             )}
           </div>
 
+        </>
+      )}
+      {displayedPackets.length > 0 && (
+        <>
           <h3>Recent saved history packets</h3>
           <div className="esp32-telemetry__history">
             <table>
               <thead>
-                <tr><th>Received</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th></tr>
+                <tr><th>Time</th><th>Device</th><th>Sequence</th><th>Water °C</th><th>pH status</th><th>TDS status</th><th>Raw pH</th><th>Raw TDS</th><th>Ultrasonic status</th></tr>
               </thead>
               <tbody>
                 {displayedPackets.map((item) => (
                   <tr key={item.id}>
-                    <td>{timestamp(item.received_at)}</td>
+                    <td>{timestamp(item.validation_at ?? item.received_at)}{isImportedHistory(item) ? ' (imported history)' : ''}</td>
                     <td>{item.packet.device_id}</td>
                     <td>{item.packet.sequence}</td>
                     <td>{numeric(item.packet.water_temp_c, '', 2)}</td>
